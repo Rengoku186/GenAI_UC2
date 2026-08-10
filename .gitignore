@@ -1,0 +1,14 @@
+# Environment Secrets
+.env
+
+
+# Runtime Cache and Outputs
+__pycache__/
+*pyc
+.pytest_cache/
+
+# Virtual Environment
+venv/
+.venv/
+.env/
+env/
