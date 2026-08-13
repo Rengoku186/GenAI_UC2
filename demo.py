@@ -3,7 +3,6 @@ import sys
 import argparse
 from typing import List
 
-# Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath("."))
 
 from src.tools.dependency_scanner import detect_language, parse_file_chunks
@@ -45,7 +44,7 @@ def run_demo(paths: List[str] = None, max_lines: int = 400):
         lang = detect_language(file_path)
         print(f"\nFile: {file_path}")
         print(f" -> Detected Language: {lang.upper()}")
-        
+
         raw_chunks = parse_file_chunks(file_path)
         print(f" -> Parsed Chunks ({len(raw_chunks)}):")
         for qid, scope, name, code, start_l, end_l in raw_chunks:
@@ -56,6 +55,7 @@ def run_demo(paths: List[str] = None, max_lines: int = 400):
                 scope=scope,
                 name=name,
                 code=code,
+                language=lang,          # NEW
                 start_line=start_l,
                 end_line=end_l
             ))
@@ -81,39 +81,29 @@ def run_demo(paths: List[str] = None, max_lines: int = 400):
             for idx, sub in enumerate(split_results, 1):
                 sub_lines = len(sub.code.splitlines())
                 print(f"  Sub-chunk {idx}: ID='{sub.id}' | Lines: {sub.start_line}-{sub.end_line} ({sub_lines} lines)")
-            
+
             reconstituted = "\n".join([sc.code for sc in split_results])
             print(f"Lossless Verification Passed? {reconstituted.strip() == chunk.code.strip()}")
 
     if not split_occurred:
-        # Dynamically select the largest chunk and demonstrate splitting with a lower threshold
         largest_chunk = max(all_parsed_chunks, key=lambda c: c.end_line - c.start_line + 1)
         line_count = largest_chunk.end_line - largest_chunk.start_line + 1
         demo_max = max(2, line_count // 2)
         print(f"\nNo single chunk exceeded {max_lines} lines.")
         print(f"Demonstrating Splitter Agent on largest chunk '{largest_chunk.name}' ({line_count} lines) using threshold max_lines={demo_max}:")
-        
+
         split_results = split_chunk_if_oversized(largest_chunk, max_lines=demo_max)
         print(f"Splitter Output: Divided into {len(split_results)} sub-chunks:")
         for idx, sub in enumerate(split_results, 1):
             sub_lines = len(sub.code.splitlines())
             print(f"  Sub-chunk {idx}: ID='{sub.id}' | Lines: {sub.start_line}-{sub.end_line} ({sub_lines} lines)")
-        
+
         reconstituted = "\n".join([sc.code for sc in split_results])
         print(f"Lossless Verification Passed? {reconstituted.strip() == largest_chunk.code.strip()}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Dynamic Code Language Detection & Splitter Agent Demo")
-    parser.add_argument(
-        "paths",
-        nargs="*",
-        help="File(s) or directory path(s) to dynamically scan and process (default: samples/)"
-    )
-    parser.add_argument(
-        "--max-lines",
-        type=int,
-        default=400,
-        help="Maximum lines per chunk before splitting (default: 400)"
-    )
+    parser.add_argument("paths", nargs="*", help="File(s) or directory path(s) to dynamically scan and process (default: samples/)")
+    parser.add_argument("--max-lines", type=int, default=400, help="Maximum lines per chunk before splitting (default: 400)")
     args = parser.parse_args()
     run_demo(paths=args.paths, max_lines=args.max_lines)

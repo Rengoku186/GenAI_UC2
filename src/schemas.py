@@ -4,12 +4,13 @@ from typing import List, Optional
 class Chunk(BaseModel):
     id: str                    # fully-qualified: "file_path::scope::name"
     file_path: str
-    scope: Optional[str] = None # enclosing class / program, if any
+    scope: Optional[str] = None
     name: str
     code: str
+    language: str = "unknown"  # "cobol" | "vb" | "java" | "mixed" | "unknown"
     start_line: int
     end_line: int
-    depends_on: List[str] = Field(default_factory=list) # qualified ids of chunks this one calls
+    depends_on: List[str] = Field(default_factory=list)
     is_cycle_group: bool = False
 
 class ChunkDoc(BaseModel):
@@ -22,7 +23,7 @@ class ChunkDoc(BaseModel):
 
 class EvalResult(BaseModel):
     chunk_id: str
-    overall_score: float       # 0-100, see compute_confidence_score
+    overall_score: float
     issues: List[str] = Field(default_factory=list)
     needs_refinement: bool
 

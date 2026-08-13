@@ -14,6 +14,7 @@ def create_chunk_from_node_data(node_id: Any, node_data: dict) -> Chunk:
         scope=node_data.get("scope"),
         name=name,
         code=node_data.get("code", ""),
+        language=node_data.get("language", "unknown"),
         start_line=node_data.get("start_line", 1),
         end_line=node_data.get("end_line", 1),
         depends_on=node_data.get("depends_on", []),
@@ -27,50 +28,52 @@ def _split_at_next_boundary(chunk: Chunk) -> List[Chunk]:
     lines = chunk.code.splitlines()
     total_lines = len(lines)
     midpoint = total_lines // 2
-    
+
     split_idx = midpoint
     for i in range(midpoint, min(midpoint + 50, total_lines)):
         if not lines[i].strip() or lines[i].strip().endswith('.') or lines[i].strip().endswith(';'):
             split_idx = i + 1
             break
-            
+
     if split_idx <= 0 or split_idx >= total_lines:
         split_idx = max(1, midpoint)
-            
+
     part1_code = "\n".join(lines[:split_idx])
     part2_code = "\n".join(lines[split_idx:])
-    
+
     c1 = Chunk(
         id=f"{chunk.id}::part1",
         file_path=chunk.file_path,
         scope=chunk.scope,
         name=f"{chunk.name}_part1",
         code=part1_code,
+        language=chunk.language,
         start_line=chunk.start_line,
         end_line=chunk.start_line + split_idx - 1,
         depends_on=chunk.depends_on,
         is_cycle_group=False
     )
-    
+
     c2 = Chunk(
         id=f"{chunk.id}::part2",
         file_path=chunk.file_path,
         scope=chunk.scope,
         name=f"{chunk.name}_part2",
         code=part2_code,
+        language=chunk.language,
         start_line=chunk.start_line + split_idx,
         end_line=chunk.end_line,
-        depends_on=[],
+        depends_on=chunk.depends_on,   # inherits full deps (safe/over-inclusive vs. silent loss)
         is_cycle_group=False
     )
-    
+
     return [c1, c2]
 
 def split_chunk_if_oversized(chunk: Chunk, max_lines: int = 800) -> List[Chunk]:
     line_count = chunk.end_line - chunk.start_line + 1
     if line_count <= max_lines or chunk.is_cycle_group:
         return [chunk]
-        
+
     sub_chunks = _split_at_next_boundary(chunk)
     result = []
     for sc in sub_chunks:
