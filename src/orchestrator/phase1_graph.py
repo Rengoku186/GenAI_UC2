@@ -1,338 +1,188 @@
-from typing import Dict, Any
-
+from typing import Dict, Any, List
 from langgraph.graph import StateGraph, START, END
-
 from src.state import PipelineState
-from src.schemas import Chunk
+from src.schemas import Chunk, ChunkDoc, EvalResult
+from src.tools.dependency_scanner import scan_project
+from src.tools.cycle_detector import prepare_processing_graph
+from src.agents.splitter import create_chunk_from_node_data, split_chunk_if_oversized
+from src.agents.documenter import document_chunk
+from src.agents.evaluator import evaluate_chunk_doc, PASS_THRESHOLD
+from src.knowledge_store.store import KnowledgeStore
 
-from src.tools.dependency_scanner import (
-    scan_project,
-    detect_language,
-)
-
-from src.agents.splitter import (
-    create_chunk_from_node_data,
-    split_chunk_if_oversized,
-)
-
-
-# ============================================================
-# SCANNER NODE
-# ============================================================
-#
-# Demo flow:
-#
-#   File
-#     ↓
-#   Language Detection
-#     ↓
-#   Legacy Code Scanner
-#     ↓
-#   Logical Chunks
-#     ↓
-#   Oversized Chunk Splitting
-#     ↓
-#   Final Chunks
-# ============================================================
+store = KnowledgeStore()
 
 def scanner_node(state: PipelineState) -> Dict[str, Any]:
-
     file_paths = state.get("file_paths", [])
-
-    if not file_paths:
-        return {
-            "chunks": [],
-            "processing_order": [],
-            "current_chunk": None,
-            "docs": {},
-            "eval_scores": {},
-            "refine_count": {},
-            "flagged_items": [],
-        }
-
-    print()
-    print("=" * 70)
-    print("LEGACY CODE LANGUAGE DETECTION AND CHUNKING DEMO")
-    print("=" * 70)
-
-    # --------------------------------------------------------
-    # STEP 1: LANGUAGE DETECTION
-    # --------------------------------------------------------
-
-    print()
-    print("[1] LANGUAGE DETECTION")
-    print("-" * 70)
-
-    for file_path in file_paths:
-
-        language = detect_language(file_path)
-
-        print(
-            f"File     : {file_path}"
-        )
-
-        print(
-            f"Language : {language.upper()}"
-        )
-
-        print()
-
-    # --------------------------------------------------------
-    # STEP 2: SCAN PROJECT
-    # --------------------------------------------------------
-    #
-    # scan_project() uses parse_file_chunks() internally.
-    #
-    # It creates one graph node for every logical chunk.
-    #
-    # Example COBOL:
-    #
-    # MAIN-PARA
-    # VALIDATE-INPUT
-    # CALC-INTEREST
-    # RAISE-ERROR
-    #
-    # --------------------------------------------------------
-
-    print("[2] LOGICAL CHUNK DETECTION")
-    print("-" * 70)
-
     raw_graph = scan_project(file_paths)
+    condensed_dag, processing_order = prepare_processing_graph(raw_graph)
 
     chunks_list = []
+    for node_id in condensed_dag.nodes:
+        node_data = condensed_dag.nodes[node_id]
+        real_id = str(node_data.get("id", node_id))
+        chunk = create_chunk_from_node_data(real_id, node_data)
+        split_chunks = split_chunk_if_oversized(chunk)
+        for sc in split_chunks:
+            chunks_list.append(sc.model_dump())
 
-    # --------------------------------------------------------
-    # STEP 3: CONVERT GRAPH NODES TO CHUNKS
-    # --------------------------------------------------------
-
-    for node_id in raw_graph.nodes:
-
-        node_data = raw_graph.nodes[node_id]
-
-        real_id = str(
-            node_data.get(
-                "id",
-                node_id
-            )
-        )
-
-        chunk = create_chunk_from_node_data(
-            real_id,
-            node_data
-        )
-
-        # ----------------------------------------------------
-        # Display logical chunk information
-        # ----------------------------------------------------
-
-        print(
-            f"Chunk Name : {chunk.name}"
-        )
-
-        print(
-            f"Chunk ID   : {chunk.id}"
-        )
-
-        print(
-            f"File       : {chunk.file_path}"
-        )
-
-        print(
-            f"Lines      : "
-            f"{chunk.start_line}-{chunk.end_line}"
-        )
-
-        print(
-            f"Dependencies: "
-            f"{len(chunk.depends_on)}"
-        )
-
-        print()
-
-        # ----------------------------------------------------
-        # STEP 4: SPLIT OVERSIZED CHUNK
-        # ----------------------------------------------------
-
-        split_chunks = split_chunk_if_oversized(
-            chunk,
-            max_lines=800
-        )
-
-        # ----------------------------------------------------
-        # Add final chunks
-        # ----------------------------------------------------
-
-        for split_chunk in split_chunks:
-
-            chunks_list.append(
-                split_chunk.model_dump()
-            )
-
-    # --------------------------------------------------------
-    # STEP 5: FINAL CHUNK SUMMARY
-    # --------------------------------------------------------
-
-    print()
-    print("[3] FINAL CHUNKS AFTER SIZE SPLITTING")
-    print("-" * 70)
-
-    for index, chunk_data in enumerate(
-        chunks_list,
-        start=1
-    ):
-
-        chunk = Chunk.model_validate(
-            chunk_data
-        )
-
-        line_count = (
-            chunk.end_line
-            - chunk.start_line
-            + 1
-        )
-
-        print(
-            f"{index}. "
-            f"{chunk.name} "
-            f"[Lines "
-            f"{chunk.start_line}-"
-            f"{chunk.end_line}] "
-            f"({line_count} lines)"
-        )
-
-    # --------------------------------------------------------
-    # STEP 6: SIZE VALIDATION
-    # --------------------------------------------------------
-
-    oversized_chunks = []
-
-    for chunk_data in chunks_list:
-
-        chunk = Chunk.model_validate(
-            chunk_data
-        )
-
-        line_count = (
-            chunk.end_line
-            - chunk.start_line
-            + 1
-        )
-
-        if line_count > 800:
-
-            oversized_chunks.append(
-                chunk.id
-            )
-
-    print()
-    print("[4] SIZE VALIDATION")
-    print("-" * 70)
-
-    if oversized_chunks:
-
-        print(
-            "FAILED"
-        )
-
-        print(
-            f"{len(oversized_chunks)} "
-            f"chunk(s) are above 800 lines."
-        )
-
-    else:
-
-        print(
-            "PASSED"
-        )
-
-        print(
-            "All chunks are <= 800 lines."
-        )
-
-    # --------------------------------------------------------
-    # STEP 7: PROCESSING ORDER
-    # --------------------------------------------------------
-    #
-    # For this demo we simply process the final chunks in the
-    # order in which they were generated.
-    #
-    # The production version can continue to use the dependency
-    # graph / cycle detector for dependency-aware processing.
-    # --------------------------------------------------------
-
-    processing_order = [
-        chunk["id"]
-        for chunk in chunks_list
-    ]
-
-    current_chunk = (
-        processing_order[0]
-        if processing_order
-        else None
-    )
-
-    # --------------------------------------------------------
-    # FINAL SUMMARY
-    # --------------------------------------------------------
-
-    print()
-    print("=" * 70)
-    print("DEMO COMPLETED")
-    print("=" * 70)
-
-    print(
-        f"Files Processed : {len(file_paths)}"
-    )
-
-    print(
-        f"Final Chunks     : {len(chunks_list)}"
-    )
-
-    print("=" * 70)
-
-    # --------------------------------------------------------
-    # Return PipelineState-compatible data
-    # --------------------------------------------------------
+    order = processing_order if processing_order else [c["id"] for c in chunks_list]
+    curr = order[0] if order else None
 
     return {
         "chunks": chunks_list,
-        "processing_order": processing_order,
-        "current_chunk": current_chunk,
-
-        # These are retained because PipelineState may contain
-        # these fields, but they are not used in this demo.
-        "docs": {},
-        "eval_scores": {},
-        "refine_count": {},
-        "flagged_items": [],
+        "processing_order": order,
+        "current_chunk": curr,
+        "docs": state.get("docs", {}),
+        "eval_scores": state.get("eval_scores", {}),
+        "eval_issues": state.get("eval_issues", {}),
+        "refine_count": state.get("refine_count", {}),
+        "flagged_items": state.get("flagged_items", [])
     }
 
+def documenter_node(state: PipelineState) -> Dict[str, Any]:
+    cid = state.get("current_chunk")
+    if not cid:
+        return {}
 
-# ============================================================
-# BUILD PHASE 1 DEMO GRAPH
-# ============================================================
+    chunks = state.get("chunks", [])
+    chunk_data = next((c for c in chunks if c["id"] == cid), None)
+    if not chunk_data:
+        return {}
+
+    chunk = Chunk.model_validate(chunk_data)
+
+    docs = dict(state.get("docs", {}))
+    dep_docs = []
+    for dep_id in chunk.depends_on:
+        if dep_id in docs:
+            dep_docs.append(ChunkDoc.model_validate(docs[dep_id]))
+
+    doc = document_chunk(chunk, dep_docs)
+    docs[cid] = doc.model_dump()
+    store.save_doc(doc)
+    return {"docs": docs}
+
+def evaluator_node(state: PipelineState) -> Dict[str, Any]:
+    cid = state.get("current_chunk")
+    if not cid:
+        return {}
+
+    chunks = state.get("chunks", [])
+    chunk_data = next((c for c in chunks if c["id"] == cid), None)
+    docs = state.get("docs", {})
+    doc_data = docs.get(cid)
+
+    if not chunk_data or not doc_data:
+        return {}
+
+    chunk = Chunk.model_validate(chunk_data)
+    doc = ChunkDoc.model_validate(doc_data)
+
+    eval_res = evaluate_chunk_doc(chunk, doc)
+    store.save_eval(eval_res)
+
+    eval_scores = dict(state.get("eval_scores", {}))
+    eval_scores[cid] = eval_res.overall_score
+
+    eval_issues = dict(state.get("eval_issues", {}))
+    eval_issues[cid] = eval_res.issues
+
+    return {"eval_scores": eval_scores, "eval_issues": eval_issues}
+
+def route_after_eval(state: PipelineState) -> str:
+    cid = state.get("current_chunk")
+    if not cid:
+        return "next_chunk_router"
+
+    scores = state.get("eval_scores", {})
+    score = scores.get(cid, 0.0)
+    refines = state.get("refine_count", {})
+    refine_cnt = refines.get(cid, 0)
+
+    if score >= PASS_THRESHOLD:
+        return "next_chunk_router"
+    if refine_cnt >= 3:
+        return "flag_for_human"
+
+    return "refine"
+
+def refine_node(state: PipelineState) -> Dict[str, Any]:
+    cid = state.get("current_chunk")
+    refines = dict(state.get("refine_count", {}))
+    if cid:
+        refines[cid] = refines.get(cid, 0) + 1
+
+    doc_updates = documenter_node(state)
+    doc_updates["refine_count"] = refines
+    return doc_updates
+
+def flag_for_human_node(state: PipelineState) -> Dict[str, Any]:
+    cid = state.get("current_chunk")
+    if not cid:
+        return {}
+
+    scores = state.get("eval_scores", {})
+    score = scores.get(cid, 0.0)
+    issues = state.get("eval_issues", {}).get(cid, ["Max refinement retries reached (score < 80)"])
+
+    store.flag_for_review(chunk_id=cid, score=score, issues=issues)
+    flagged = list(state.get("flagged_items", []))
+    flagged.append({
+        "chunk_id": cid,
+        "overall_score": score,
+        "issues": issues,
+        "reason": "Max refinement retries reached"
+    })
+    return {"flagged_items": flagged}
+
+def next_chunk_router_node(state: PipelineState) -> Dict[str, Any]:
+    order = state.get("processing_order", [])
+    cid = state.get("current_chunk")
+    next_cid = None
+    if cid and cid in order:
+        idx = order.index(cid)
+        if idx + 1 < len(order):
+            next_cid = order[idx + 1]
+    return {"current_chunk": next_cid}
+
+def check_more_chunks(state: PipelineState) -> str:
+    if state.get("current_chunk") is not None:
+        return "documenter"
+    return END
 
 def build_phase1_graph():
+    builder = StateGraph(PipelineState)
+    builder.add_node("scanner", scanner_node)
+    builder.add_node("documenter", documenter_node)
+    builder.add_node("evaluator", evaluator_node)
+    builder.add_node("refine", refine_node)
+    builder.add_node("flag_for_human", flag_for_human_node)
+    builder.add_node("next_chunk_router", next_chunk_router_node)
 
-    builder = StateGraph(
-        PipelineState
+    builder.add_edge(START, "scanner")
+    builder.add_edge("scanner", "documenter")
+    builder.add_edge("documenter", "evaluator")
+
+    builder.add_conditional_edges(
+        "evaluator",
+        route_after_eval,
+        {
+            "refine": "refine",
+            "flag_for_human": "flag_for_human",
+            "next_chunk_router": "next_chunk_router"
+        }
     )
 
+    builder.add_edge("refine", "evaluator")
+    builder.add_edge("flag_for_human", "next_chunk_router")
 
-    builder.add_node(
-        "scanner",
-        scanner_node
-    )
-
-
-    builder.add_edge(
-        START,
-        "scanner"
-    )
-
-    builder.add_edge(
-        "scanner",
-        END
+    builder.add_conditional_edges(
+        "next_chunk_router",
+        check_more_chunks,
+        {
+            "documenter": "documenter",
+            END: END
+        }
     )
 
     return builder.compile()

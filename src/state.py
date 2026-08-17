@@ -7,6 +7,7 @@ class PipelineState(TypedDict, total=False):
     chunks: List[Dict[str, Any]]
     docs: Dict[str, Dict[str, Any]]
     eval_scores: Dict[str, float]
+    eval_issues: Dict[str, List[str]]          # NEW
     refine_count: Dict[str, int]
     current_chunk: Optional[str]
     processing_order: List[str]
