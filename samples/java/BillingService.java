@@ -1,5 +1,3 @@
-package com.example.billing;
-
 public class BillingService {
 
     public void processBilling() {

@@ -31,7 +31,8 @@ try:
 
     _java_language = tree_sitter.Language(tree_sitter_java.language())
     _JAVA_PARSER = tree_sitter.Parser(_java_language)
-    _TREE_SITTER_AVAILABLE = True
+    # Tree-sitter is disabled to avoid crashes; fallback to javalang will be used
+    _TREE_SITTER_AVAILABLE = False
     logger.debug("Tree-sitter Java parser initialized successfully.")
 except Exception as exc:
     logger.info("Tree-sitter Java parser not available (%s), will use javalang/regex.", exc)

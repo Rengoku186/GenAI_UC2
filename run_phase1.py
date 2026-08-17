@@ -9,12 +9,16 @@ Does NOT touch main.py or phase2_graph.py (still a stub). Run directly:
 import argparse
 import glob
 import json
+import logging
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from src.utils.log_config import setup_logging
 from src.orchestrator.phase1_graph import build_phase1_graph
+
+logger = logging.getLogger(__name__)
 
 
 def collect_default_samples():
@@ -29,7 +33,14 @@ def main():
     parser = argparse.ArgumentParser(description="Run Phase 1 (understand legacy code) in isolation")
     parser.add_argument("--file", "-f", nargs="+", default=None, help="Specific legacy source file(s)")
     parser.add_argument("--dir", "-d", default=None, help="Run on every file inside this directory")
+    parser.add_argument("--log-dir", default="logs", help="Directory for log files (default: logs/)")
     args = parser.parse_args()
+
+    # ------------------------------------------------------------------
+    # Initialise logging — must happen before any pipeline import runs
+    # ------------------------------------------------------------------
+    log_path = setup_logging(log_dir=args.log_dir)
+    logger.info("run_phase1 started")
 
     if args.dir:
         file_paths = [f for f in glob.glob(os.path.join(args.dir, "*")) if os.path.isfile(f)]
@@ -51,7 +62,9 @@ def main():
     try:
         result = graph.invoke({"file_paths": file_paths})
     except Exception as e:
+        logger.exception("Phase 1 pipeline failed with an unhandled exception")
         print(f"\n❌ Phase 1 failed: {e}", file=sys.stderr)
+        print(f"   Full traceback saved to: {log_path}", file=sys.stderr)
         raise
 
     chunks = result.get("chunks", [])

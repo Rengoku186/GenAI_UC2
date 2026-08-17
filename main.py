@@ -1,6 +1,7 @@
 import os
 import sys
 import argparse
+import logging
 
 
 # Add project root directory to Python path
@@ -9,6 +10,10 @@ PROJECT_ROOT = os.path.dirname(
 )
 
 sys.path.insert(0, PROJECT_ROOT)
+
+from src.utils.log_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -78,7 +83,20 @@ def main():
         )
     )
 
+    parser.add_argument(
+        "--log-dir",
+        "-l",
+        default="logs",
+        help="Directory where log files are saved (default: logs/)."
+    )
+
     args = parser.parse_args()
+
+    # ------------------------------------------------------------------
+    # Initialise logging — must be the very first thing after arg parsing
+    # ------------------------------------------------------------------
+    log_path = setup_logging(log_dir=args.log_dir)
+    logger.info("main.py started — full conversion pipeline")
 
     # ========================================================
     # DEMO MODE
@@ -236,8 +254,13 @@ def main():
 
     except Exception as e:
 
+        logger.exception("Full conversion pipeline failed with an unhandled exception")
         print(
             f"\nError during conversion: {e}",
+            file=sys.stderr
+        )
+        print(
+            f"Full traceback saved to: {log_path}",
             file=sys.stderr
         )
 
