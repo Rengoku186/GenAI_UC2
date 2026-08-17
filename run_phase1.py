@@ -76,13 +76,33 @@ def main():
         for item in flagged:
             cid = item.get("chunk_id", "?")
             score = item.get("overall_score", 0.0)
-            print(f"  🚩 {cid}  (score: {score:.0f})")
+            print(f"  [FLAG] {cid}  (score: {score:.0f})")
 
-    debug_out = "phase1_last_run.json"
-    with open(debug_out, "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2, default=str)
-    print(f"\nFull state written to: {debug_out}")
-    print("\nTo review results in the dashboard, run:")
+    from src.agents.documenter import generate_master_documentation, export_flagged_json_only
+    from src.schemas import Chunk, ChunkDoc
+
+    # Convert state dictionaries back to schemas for master documentation
+    chunk_objs = [Chunk.model_validate(c) for c in chunks]
+    doc_objs = {k: ChunkDoc.model_validate(v) for k, v in docs.items()}
+
+    master_md = generate_master_documentation(
+        chunks=chunk_objs,
+        docs=doc_objs,
+        project_name="Legacy Code System",
+    )
+
+    docs_dir = "docs"
+    os.makedirs(docs_dir, exist_ok=True)
+    doc_path = os.path.join(docs_dir, "documentation.md")
+    with open(doc_path, "w", encoding="utf-8") as f:
+        f.write(master_md)
+    print(f"\n Master Markdown Specification written to: {doc_path}")
+
+    # Export structured review tickets ONLY for flagged chunks
+    flagged_out = os.path.join(docs_dir, "flagged_items.json")
+    export_flagged_json_only(flagged, flagged_out)
+
+    print("\nTo review flagged items in the dashboard, run:")
     print("  streamlit run src/dashboard/app.py")
 
 

@@ -14,4 +14,6 @@ pytest-json-report>=1.0
 langchain-chroma
 chromadb
 pytest
-    
+tree-sitter>=0.23.0
+tree-sitter-java>=0.23.0
+javalang>=0.13.0
