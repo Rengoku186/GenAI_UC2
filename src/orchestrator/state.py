@@ -40,18 +40,22 @@ class DocSection(BaseModel):
 
 
 class GeneratedCode(BaseModel):
-    """Generated target Python service code for a chunk."""
+    """Generated target Python and Java modern service code for a chunk."""
     chunk_id: str = Field(description="Target chunk ID")
     target_code: str = Field(description="Modern, idiomatic, fully runnable Python code")
     module_name: str = Field(default="", description="Suggested Python module filename or class name")
     imports: list[str] = Field(default_factory=list, description="Required Python import statements")
+    target_java_code: str = Field(default="", description="Modern, idiomatic Java 17+/21+ service implementation")
+    java_class_name: str = Field(default="", description="Java class/record name")
+    java_package: str = Field(default="com.modern.services", description="Java target package name")
     version: int = Field(default=1, description="Refinement version number (starts at 1)")
 
 
 class TestResult(BaseModel):
-    """Unit test code and execution outcomes for a chunk."""
+    """Unit test code and execution outcomes for a chunk (pytest and JUnit 5)."""
     chunk_id: str = Field(description="Target chunk ID")
     test_code: str = Field(description="Pytest test suite code targeting the generated Python code")
+    java_test_code: str = Field(default="", description="JUnit 5 test suite code targeting the generated Java service")
     pass_count: int = Field(default=0, description="Number of passing test cases")
     fail_count: int = Field(default=0, description="Number of failing test cases")
     coverage_pct: float = Field(default=0.0, description="Code line coverage percentage (0.0 - 100.0)")

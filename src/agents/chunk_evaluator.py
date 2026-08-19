@@ -28,8 +28,8 @@ class ChunkEvaluatorAgent(BaseAgent):
     def execute(self, state: PipelineState) -> dict:
         chunks = state.get("chunks", [])
         issues: list[str] = []
+        self.logger.info("Evaluating chunk boundary integrity for %d chunks (Threshold: %.2f)", len(chunks), self.threshold)
         
-        # Rule-based validation checks
         if not chunks:
             issues.append("No chunks were extracted from source files.")
         
@@ -39,7 +39,6 @@ class ChunkEvaluatorAgent(BaseAgent):
             if c.line_start < 1 or c.line_end < c.line_start:
                 issues.append(f"Chunk '{c.chunk_id}' has invalid line range ({c.line_start}-{c.line_end}).")
 
-        # Deterministic fallback evaluation logic
         def mock_eval() -> ChunkEvaluationSchema:
             if issues:
                 return ChunkEvaluationSchema(
@@ -70,11 +69,14 @@ class ChunkEvaluatorAgent(BaseAgent):
             mock_fallback_generator=mock_eval
         )
 
+        is_passed = res.passed and res.score >= self.threshold
+        self.logger.info("Chunk evaluation result: Score=%.2f, Passed=%s, Issues=%d", res.score, is_passed, len(res.issues))
+
         eval_result = EvalResult(
             target_id="global_chunks",
             stage="chunk_evaluation",
             score=res.score,
-            passed=res.passed and res.score >= self.threshold,
+            passed=is_passed,
             issues=res.issues,
             suggestions=res.suggestions,
             needs_human_review=not res.passed and res.score < self.threshold

@@ -50,3 +50,32 @@ def test_sandbox_executor_pytest():
     assert result.all_passed is True
     assert result.pass_count >= 1
     assert result.fail_count == 0
+
+
+def test_java_static_analysis_tools():
+    valid_java = """
+    package com.example;
+    import java.math.BigDecimal;
+
+    public class PaymentProcessor {
+        public BigDecimal processPayment(BigDecimal amount, String tier) {
+            if (amount == null) {
+                return BigDecimal.ZERO;
+            }
+            return amount.multiply(new BigDecimal("1.05"));
+        }
+    }
+    """
+    res = StaticAnalysisTools.validate_java_syntax(valid_java)
+    assert res["valid_syntax"] is True
+    assert "PaymentProcessor" in res["classes"]
+    assert "processPayment" in res["methods"]
+    assert "java.math.BigDecimal" in res["imports"]
+
+    complexity = StaticAnalysisTools.calculate_java_cyclomatic_complexity(valid_java)
+    assert complexity >= 2
+
+    invalid_java = "public class Broken { void test() { if (true) { } "
+    res_inv = StaticAnalysisTools.validate_java_syntax(invalid_java)
+    assert res_inv["valid_syntax"] is False
+

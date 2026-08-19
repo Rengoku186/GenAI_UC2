@@ -18,8 +18,8 @@ class DependencyMapperAgent(BaseAgent):
         """Constructs the full cross-chunk dependency graph edges."""
         chunks = state.get("chunks", [])
         all_edges: list[DependencyEdge] = []
+        self.logger.info("Building cross-chunk dependency graph across %d chunks", len(chunks))
 
-        # Group chunks by source file for parser-level dependency extraction
         file_chunks: dict[str, list] = {}
         for c in chunks:
             file_chunks.setdefault(c.source_file, []).append(c)
@@ -41,8 +41,10 @@ class DependencyMapperAgent(BaseAgent):
             else:
                 edges = []
 
+            self.logger.debug("Mapped %d dependency edges for file %s", len(edges), source_file)
             all_edges.extend(edges)
 
+        self.logger.info("Dependency mapping complete. Total edges found: %d", len(all_edges))
         return {
             "dependency_graph": all_edges,
             "stage": "dependency_mapping"

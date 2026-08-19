@@ -1,0 +1,27 @@
+# Core Orchestration and LLM Frameworks
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+langchain-anthropic>=0.2.0
+
+# Data Models & Utilities
+pydantic>=2.7.0
+pyyaml>=6.0.1
+python-dotenv>=1.0.1
+rich>=13.7.0
+pandas>=2.2.0
+networkx>=3.2.0
+plotly>=5.22.0
+
+# Visualization & Dashboard
+streamlit>=1.35.0
+
+# Testing & Execution
+pytest>=8.0.0
+pytest-cov>=5.0.0
+
+# Development & Linting (optional)
+black>=24.0.0
+ruff>=0.4.0
+mypy>=1.10.0

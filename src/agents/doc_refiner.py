@@ -26,6 +26,8 @@ class DocRefinerAgent(BaseAgent):
 
     def refine_doc(self, chunk: ChunkMetadata, current_doc: DocSection, latest_eval: EvalResult) -> DocSection:
         """Refines documentation using evaluation issues and suggestions."""
+        self.logger.info("Refining documentation for chunk %s (v%d -> v%d)", chunk.chunk_id, current_doc.version, current_doc.version + 1)
+        
         def mock_refine() -> DocRefinementSchema:
             refined_rules = list(current_doc.business_rules)
             for iss in latest_eval.issues:
@@ -80,13 +82,13 @@ class DocRefinerAgent(BaseAgent):
         if target_chunk_id and target_chunk_id in docs and target_chunk_id in chunks:
             refine_targets = [target_chunk_id]
         else:
-            # Find all chunks whose latest doc_evaluation failed
             refine_targets = []
             for cid in docs:
                 latest_evals = [e for e in eval_history if e.target_id == cid and e.stage == "doc_evaluation"]
                 if latest_evals and not latest_evals[-1].passed and not latest_evals[-1].needs_human_review:
                     refine_targets.append(cid)
 
+        self.logger.info("Running documentation refiner on %d chunks", len(refine_targets))
         for cid in refine_targets:
             chunk = chunks[cid]
             current_doc = docs[cid]
@@ -98,9 +100,9 @@ class DocRefinerAgent(BaseAgent):
             new_doc = self.refine_doc(chunk, current_doc, latest_eval)
             docs[cid] = new_doc
             
-            # Increment retry count
             key = f"{cid}:documentation"
             retry_counts[key] = retry_counts.get(key, 0) + 1
+            self.logger.debug("Incremented retry count for %s to %d", key, retry_counts[key])
 
         return {
             "docs": docs,

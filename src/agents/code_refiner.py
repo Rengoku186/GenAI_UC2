@@ -1,4 +1,4 @@
-"""Agent 10: Code Refiner Agent."""
+"""Agent 10: Code Refiner Agent (Java-only mode)."""
 
 from __future__ import annotations
 from pydantic import BaseModel, Field
@@ -11,13 +11,13 @@ from src.prompts.codegen_prompts import (
 
 
 class CodeRefinementSchema(BaseModel):
-    module_name: str = Field(description="Python module name")
-    imports: list[str] = Field(default_factory=list, description="Required Python imports")
-    target_code: str = Field(description="Corrected, complete, runnable Python code")
+    module_name: str = Field(description="Java module/file stem name")
+    target_java_code: str = Field(description="Corrected, complete Java 17+ service code")
+    java_class_name: str = Field(default="", description="Java class name")
 
 
 class CodeRefinerAgent(BaseAgent):
-    """Consumes Code Evaluator feedback or test execution failures and rewrites failing Python code."""
+    """Consumes Code Evaluator feedback or test execution failures and rewrites failing Java code."""
 
     def __init__(self, config_dir: str = "configs"):
         super().__init__("code_refiner", config_dir=config_dir)
@@ -30,16 +30,18 @@ class CodeRefinerAgent(BaseAgent):
         latest_eval: EvalResult | None = None,
         test_result: TestResult | None = None
     ) -> GeneratedCode:
-        """Rewrites Python code based on evaluator feedback or test failure output."""
+        """Rewrites Java code based on evaluator feedback or test failure output."""
+        self.logger.info("Refining Java code for chunk %s (v%d -> v%d)", chunk.chunk_id, current_code.version, current_code.version + 1)
+
         def mock_refine() -> CodeRefinementSchema:
-            # Clean up target code if there was any syntax issue
-            clean_code = current_code.target_code
-            if "import " not in clean_code:
-                clean_code = "from decimal import Decimal\n\n" + clean_code
+            # Ensure package declaration is present
+            java_code = current_code.target_java_code
+            if java_code and "package com.modern.services;" not in java_code:
+                java_code = "package com.modern.services;\n\n" + java_code
             return CodeRefinementSchema(
                 module_name=current_code.module_name or chunk.name.lower(),
-                imports=current_code.imports,
-                target_code=clean_code
+                target_java_code=java_code,
+                java_class_name=current_code.java_class_name
             )
 
         feedback_str = ""
@@ -53,7 +55,7 @@ class CodeRefinerAgent(BaseAgent):
             feedback=feedback_str,
             test_output=test_out_str,
             version=current_code.version,
-            current_code=current_code.target_code,
+            current_java_code=current_code.target_java_code,
             language=chunk.language,
             raw_code=chunk.raw_code,
             business_rules="\n".join([f"- {r}" for r in doc.business_rules])
@@ -68,9 +70,12 @@ class CodeRefinerAgent(BaseAgent):
 
         return GeneratedCode(
             chunk_id=chunk.chunk_id,
-            target_code=res.target_code,
+            target_code="",          # Java-only mode
             module_name=res.module_name,
-            imports=res.imports,
+            imports=[],
+            target_java_code=res.target_java_code or current_code.target_java_code,
+            java_class_name=res.java_class_name or current_code.java_class_name,
+            java_package=current_code.java_package,
             version=current_code.version + 1
         )
 
@@ -88,7 +93,6 @@ class CodeRefinerAgent(BaseAgent):
         else:
             refine_targets = []
             for cid in generated:
-                # Check if latest code_eval failed or test execution failed
                 code_evals = [e for e in eval_history if e.target_id == cid and e.stage == "code_evaluation"]
                 test_evals = [e for e in eval_history if e.target_id == cid and e.stage == "test_execution"]
                 
@@ -101,6 +105,7 @@ class CodeRefinerAgent(BaseAgent):
                 if needs_refine:
                     refine_targets.append(cid)
 
+        self.logger.info("Refining code across %d chunks", len(refine_targets))
         for cid in refine_targets:
             chunk = chunks[cid]
             doc = docs.get(cid, DocSection(chunk_id=cid, purpose="Default", control_flow="Sequential"))
@@ -114,6 +119,7 @@ class CodeRefinerAgent(BaseAgent):
 
             key = f"{cid}:code_generation"
             retry_counts[key] = retry_counts.get(key, 0) + 1
+            self.logger.debug("Incremented retry count for %s to %d", key, retry_counts[key])
 
         return {
             "generated_code": generated,

@@ -1,4 +1,4 @@
-"""Agent 9: Code Evaluator Agent."""
+"""Agent 9: Code Evaluator Agent (Java-only mode)."""
 
 from __future__ import annotations
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ class CodeEvaluationSchema(BaseModel):
 
 
 class CodeEvaluatorAgent(BaseAgent):
-    """Evaluates generated Python code via static AST validation, complexity, and behavioral parity."""
+    """Evaluates generated Java 17+ code via structural validation and behavioral parity checks."""
 
     def __init__(self, config_dir: str = "configs"):
         super().__init__("code_evaluator", config_dir=config_dir)
@@ -33,33 +33,30 @@ class CodeEvaluatorAgent(BaseAgent):
         code_obj: GeneratedCode,
         retry_count: int
     ) -> EvalResult:
-        """Evaluates a single chunk's Python code."""
-        # Static AST analysis
-        syntax_res = StaticAnalysisTools.validate_python_syntax(code_obj.target_code)
-        complexity = StaticAnalysisTools.calculate_cyclomatic_complexity(code_obj.target_code)
+        """Evaluates a single chunk's Java code."""
+        self.logger.debug("Evaluating generated Java code for chunk %s (v%d, retry=%d)", chunk.chunk_id, code_obj.version, retry_count)
 
         def mock_eval() -> CodeEvaluationSchema:
             issues = []
-            if not syntax_res["valid_syntax"]:
-                issues.append(f"Syntax Error: {syntax_res['error']}")
-            if not code_obj.target_code.strip():
-                issues.append("Generated code is empty.")
+            if not code_obj.target_java_code.strip():
+                issues.append("Generated Java code is empty.")
+            elif "public class" not in code_obj.target_java_code and "public record" not in code_obj.target_java_code:
+                issues.append("Generated Java code does not contain a valid public class or record declaration.")
 
             if issues:
                 return CodeEvaluationSchema(
                     score=0.30,
                     passed=False,
                     issues=issues,
-                    suggestions=["Fix Python syntax errors and parse failures."]
+                    suggestions=["Ensure Java class has a valid public class/record declaration and non-empty method bodies."]
                 )
 
-            # High confidence if valid syntax and functions/classes present
             score = 0.94
             return CodeEvaluationSchema(
                 score=score,
                 passed=score >= self.threshold,
                 issues=[],
-                suggestions=[f"Code adheres to modern Python 3.11 standards (Cyclomatic complexity: {complexity})."]
+                suggestions=["Java service adheres to modern Java 17+ standards."]
             )
 
         user_prompt = CODE_EVALUATOR_USER_PROMPT.format(
@@ -68,8 +65,8 @@ class CodeEvaluatorAgent(BaseAgent):
             raw_code=chunk.raw_code,
             business_rules="\n".join([f"- {r}" for r in doc.business_rules]),
             version=code_obj.version,
-            target_code=code_obj.target_code,
-            syntax_status="Valid" if syntax_res["valid_syntax"] else f"Invalid ({syntax_res['error']})"
+            target_code=code_obj.target_java_code,
+            syntax_status="Structural check passed" if code_obj.target_java_code.strip() else "Empty Java code"
         )
 
         res = self.invoke_structured(
@@ -79,15 +76,17 @@ class CodeEvaluatorAgent(BaseAgent):
             mock_fallback_generator=mock_eval
         )
 
-        # Fail if static syntax is invalid regardless of LLM score
-        if not syntax_res["valid_syntax"]:
+        # Validate Java structure directly (no Python AST)
+        java_empty = not code_obj.target_java_code.strip()
+        if java_empty:
             res.passed = False
             res.score = min(res.score, 0.40)
-            if syntax_res["error"] not in res.issues:
-                res.issues.append(syntax_res["error"])
+            if "Generated Java code is empty." not in res.issues:
+                res.issues.append("Generated Java code is empty.")
 
         is_passed = res.passed and res.score >= self.threshold
         needs_human = (not is_passed) and (retry_count >= self.max_retries)
+        self.logger.info("Code evaluation for %s: Score=%.2f, Passed=%s, NeedsReview=%s", chunk.chunk_id, res.score, is_passed, needs_human)
 
         return EvalResult(
             target_id=chunk.chunk_id,
@@ -112,6 +111,7 @@ class CodeEvaluatorAgent(BaseAgent):
         else:
             eval_targets = list(generated.keys())
 
+        self.logger.info("Evaluating generated code across %d chunks", len(eval_targets))
         new_evals: list[EvalResult] = []
         flagged: list[str] = []
 

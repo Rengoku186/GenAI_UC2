@@ -27,11 +27,11 @@ class DependencyEvaluatorAgent(BaseAgent):
     def execute(self, state: PipelineState) -> dict:
         chunks = state.get("chunks", [])
         edges = state.get("dependency_graph", [])
+        self.logger.info("Auditing dependency graph: %d nodes, %d edges (Threshold: %.2f)", len(chunks), len(edges), self.threshold)
         
         chunk_ids = {c.chunk_id for c in chunks}
         issues: list[str] = []
 
-        # Validate edge source validity
         for edge in edges:
             if edge.source_chunk not in chunk_ids and not edge.source_chunk.endswith("_HEADER"):
                 issues.append(f"Edge references unknown source chunk: {edge.source_chunk}")
@@ -66,11 +66,14 @@ class DependencyEvaluatorAgent(BaseAgent):
             mock_fallback_generator=mock_eval
         )
 
+        is_passed = res.passed and res.score >= self.threshold
+        self.logger.info("Dependency evaluation result: Score=%.2f, Passed=%s, Issues=%d", res.score, is_passed, len(res.issues))
+
         eval_result = EvalResult(
             target_id="global_dependency_graph",
             stage="dependency_evaluation",
             score=res.score,
-            passed=res.passed and res.score >= self.threshold,
+            passed=is_passed,
             issues=res.issues,
             suggestions=res.suggestions,
             needs_human_review=not res.passed and res.score < self.threshold

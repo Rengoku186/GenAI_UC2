@@ -1,0 +1,85 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Pytest / Unit Test caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Sandbox Temporary Test Execution Directories
+sandbox_run_*
+sandbox_test_*
+.sandbox/
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints
+
+# IDE / Editor Specific Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Modernization Output Run Artifacts (keep outputs folder tracked with .gitkeep if needed)
+outputs/evaluation_reports/*.json
+!outputs/evaluation_reports/latest_report.json
+
+# Pipeline execution knowledge store (runtime artifact, grows per run)
+.knowledge_store/
+.knowledge_store
+
+
+#Run Guide 
+RUN_GUIDE.md
+PROJECT_EXPLANATION_GUIDE.md

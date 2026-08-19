@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "legacy-modernizer"
 version = "0.1.0"
-description = "Autonomous Multi-Agent System for Modernizing Legacy COBOL, VB, and Java to Python"
+description = "Autonomous Multi-Agent System for Modernizing Legacy COBOL, VB, and Java to Modern Java 17+"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -39,8 +39,14 @@ dev = [
 
 [project.scripts]
 modernize = "src.orchestrator.graph:main"
-dashboard = "src.dashboard.app:run_app"
+dashboard = "src.dashboard.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-v"
+

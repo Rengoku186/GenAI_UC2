@@ -27,6 +27,8 @@ class DocEvaluatorAgent(BaseAgent):
 
     def evaluate_chunk_doc(self, chunk: ChunkMetadata, doc: DocSection, retry_count: int) -> EvalResult:
         """Evaluates documentation for a single chunk."""
+        self.logger.debug("Evaluating doc for chunk %s (v%d, retry=%d)", chunk.chunk_id, doc.version, retry_count)
+        
         def mock_eval() -> DocEvaluationSchema:
             issues = []
             if not doc.business_rules:
@@ -36,7 +38,6 @@ class DocEvaluatorAgent(BaseAgent):
             if not doc.outputs:
                 issues.append("Outputs list is empty.")
 
-            # Simulate high confidence if rules are populated
             score = 0.92 if not issues else 0.65
             return DocEvaluationSchema(
                 score=score,
@@ -66,6 +67,7 @@ class DocEvaluatorAgent(BaseAgent):
 
         is_passed = res.passed and res.score >= self.threshold
         needs_human = (not is_passed) and (retry_count >= self.max_retries)
+        self.logger.info("Doc evaluation for %s: Score=%.2f, Passed=%s, NeedsReview=%s", chunk.chunk_id, res.score, is_passed, needs_human)
 
         return EvalResult(
             target_id=chunk.chunk_id,
@@ -89,6 +91,7 @@ class DocEvaluatorAgent(BaseAgent):
         else:
             eval_targets = list(docs.keys())
 
+        self.logger.info("Evaluating documentation across %d chunks", len(eval_targets))
         new_evals: list[EvalResult] = []
         flagged: list[str] = []
 

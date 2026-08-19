@@ -29,10 +29,17 @@ from src.agents.code_refiner import CodeRefinerAgent
 from src.agents.test_generator import TestGeneratorAgent
 from src.agents.test_executor import TestExecutorAgent
 from src.evaluation.report_builder import ReportBuilder
+from src.utils.logger import setup_logging, get_logger
+from src.utils.pipeline_log_handler import PipelineMemoryHandler
+from src.utils.knowledge_store import write_knowledge_store
+
+logger = get_logger("Orchestrator")
 
 
 def build_modernization_graph(config_dir: str = "configs") -> Any:
     """Builds and compiles the full LangGraph StateGraph for code modernization."""
+    setup_logging()
+    logger.info("Initializing LangGraph Modernization Graph with config_dir='%s'", config_dir)
 
     # Initialize all agent instances
     chunker = IngestionChunkerAgent(config_dir=config_dir)
@@ -51,43 +58,57 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
 
     # Define Node Wrappers
     def node_ingestion_chunker(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: IngestionChunker")
         return chunker.execute(state)
 
     def node_chunk_evaluator(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: ChunkEvaluator")
         return chunk_eval.execute(state)
 
     def node_dependency_mapper(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: DependencyMapper")
         return dep_mapper.execute(state)
 
     def node_dependency_evaluator(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: DependencyEvaluator")
         return dep_eval.execute(state)
 
     def node_documenter(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: Documenter")
         return documenter.execute(state)
 
     def node_doc_evaluator(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: DocEvaluator")
         return doc_eval.execute(state)
 
     def node_doc_refiner(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: DocRefiner")
         return doc_refiner.execute(state)
 
     def node_code_generator(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: CodeGenerator (Python & Java)")
         return code_gen.execute(state)
 
     def node_code_evaluator(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: CodeEvaluator")
         return code_eval.execute(state)
 
     def node_code_refiner(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: CodeRefiner")
         return code_refiner.execute(state)
 
     def node_test_generator(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: TestGenerator (pytest & JUnit 5)")
         return test_gen.execute(state)
 
     def node_test_executor(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: TestExecutor")
         return test_exec.execute(state)
 
     def node_report_builder(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: ReportBuilder")
         saved_path = report_builder.save_report_to_disk(state)
+        logger.info("[Pipeline] Evaluation report successfully written to: %s", saved_path)
         return {
             "stage": "completed",
             "metadata": {"report_path": str(saved_path)}
@@ -181,6 +202,13 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
 
 def run_pipeline(source_files: list[str], config_dir: str = "configs") -> PipelineState:
     """Convenience runner to execute the modernization graph synchronously on given source files."""
+    setup_logging()
+
+    # Install the in-memory log handler and reset any prior run's entries
+    mem_handler = PipelineMemoryHandler.install()
+    mem_handler.reset()
+
+    logger.info("Starting Modernization Pipeline for %d source files: %s", len(source_files), source_files)
     app = build_modernization_graph(config_dir=config_dir)
 
     initial_state: PipelineState = {
@@ -199,18 +227,37 @@ def run_pipeline(source_files: list[str], config_dir: str = "configs") -> Pipeli
     }
 
     final_state = app.invoke(initial_state)
+    logger.info("Pipeline run finished. Total chunks: %d, stage: %s", len(final_state.get("chunks", [])), final_state.get("stage"))
+
+    # Flush captured logs and write them to the .knowledge_store file on disk
+    execution_log = mem_handler.flush_entries()
+    report_meta   = final_state.get("metadata", {})
+    run_id        = report_meta.get("report_path", "").replace("\\", "/").split("/")[-1].replace(".json", "") or "run_unknown"
+
+    ks_path = write_knowledge_store(
+        entries=execution_log,
+        run_id=run_id,
+        source_files=source_files,
+        chunk_summary={
+            "total_chunks":               len(final_state.get("chunks", [])),
+            "status_summary":             {},   # populated fully by ReportBuilder; this is a quick summary
+            "overall_average_confidence": 0.0,
+        },
+    )
+    logger.info("Execution trace written to: %s", ks_path)
+
     return final_state
 
 
 def main():
     """CLI Entrypoint for running the legacy code modernizer."""
+    setup_logging()
     from rich.console import Console
     from rich.table import Table
 
     console = Console()
     console.print("[bold green]=== Legacy Code Modernization Agentic System ===[/bold green]\n")
 
-    # Default sample files if none passed in argv
     if len(sys.argv) > 1:
         source_paths = sys.argv[1:]
     else:

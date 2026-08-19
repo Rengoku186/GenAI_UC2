@@ -1,23 +1,42 @@
-"""Conditional edge routing logic for LangGraph state machine."""
+"""Conditional edge routing logic for LangGraph state machine with logging."""
 
 from __future__ import annotations
 import yaml
 from pathlib import Path
 from typing import Literal
 from src.orchestrator.state import PipelineState, EvalResult
+from src.utils.logger import get_logger
 
+logger = get_logger("Router")
+
+
+_CACHED_RETRY_CAPS: dict[str, int] | None = None
 
 def _load_retry_caps() -> dict[str, int]:
-    """Loads retry limits from thresholds config."""
-    config_path = Path("configs/thresholds.yaml")
-    if config_path.exists():
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-                return data.get("retry_caps", {})
-        except Exception:
-            pass
-    return {"chunking": 2, "dependency_mapping": 2, "documentation": 3, "code_generation": 3, "test_generation": 3}
+    """Loads retry limits from thresholds config safely and independently of CWD."""
+    global _CACHED_RETRY_CAPS
+    if _CACHED_RETRY_CAPS is not None:
+        return _CACHED_RETRY_CAPS
+
+    candidates = [
+        Path("configs/thresholds.yaml"),
+        Path(__file__).resolve().parent.parent.parent / "configs" / "thresholds.yaml",
+        Path.cwd() / "configs" / "thresholds.yaml",
+    ]
+    for config_path in candidates:
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                    caps = data.get("retry_caps", {})
+                    if caps:
+                        _CACHED_RETRY_CAPS = caps
+                        return _CACHED_RETRY_CAPS
+            except Exception as e:
+                logger.debug("Failed reading retry caps from %s: %s", config_path, e)
+    
+    _CACHED_RETRY_CAPS = {"chunking": 2, "dependency_mapping": 2, "documentation": 3, "code_generation": 3, "test_generation": 3}
+    return _CACHED_RETRY_CAPS
 
 
 def route_after_chunk_eval(state: PipelineState) -> Literal["dependency_mapper", "ingestion_chunker"]:
@@ -25,20 +44,23 @@ def route_after_chunk_eval(state: PipelineState) -> Literal["dependency_mapper",
     eval_history = state.get("eval_history", [])
     chunk_evals = [e for e in eval_history if e.stage == "chunk_evaluation"]
     if not chunk_evals:
+        logger.info("[Router] No chunk evaluations found; routing to dependency_mapper")
         return "dependency_mapper"
 
     latest = chunk_evals[-1]
     if latest.passed:
+        logger.info("[Router] Chunk evaluation passed (Score: %.2f); routing to dependency_mapper", latest.score)
         return "dependency_mapper"
 
-    # Check retry cap
     retry_counts = state.get("retry_counts", {})
     cap = _load_retry_caps().get("chunking", 2)
     attempts = retry_counts.get("global:chunking", 0)
 
     if attempts < cap:
+        logger.warning("[Router] Chunk evaluation failed (Attempt %d/%d); looping back to ingestion_chunker", attempts + 1, cap)
         return "ingestion_chunker"
     
+    logger.warning("[Router] Chunk evaluation retry cap reached (%d/%d); proceeding to dependency_mapper", attempts, cap)
     return "dependency_mapper"
 
 
@@ -47,10 +69,12 @@ def route_after_dep_eval(state: PipelineState) -> Literal["documenter", "depende
     eval_history = state.get("eval_history", [])
     dep_evals = [e for e in eval_history if e.stage == "dependency_evaluation"]
     if not dep_evals:
+        logger.info("[Router] No dependency evaluations found; routing to documenter")
         return "documenter"
 
     latest = dep_evals[-1]
     if latest.passed:
+        logger.info("[Router] Dependency evaluation passed (Score: %.2f); routing to documenter", latest.score)
         return "documenter"
 
     retry_counts = state.get("retry_counts", {})
@@ -58,8 +82,10 @@ def route_after_dep_eval(state: PipelineState) -> Literal["documenter", "depende
     attempts = retry_counts.get("global:dependency_mapping", 0)
 
     if attempts < cap:
+        logger.warning("[Router] Dependency evaluation failed (Attempt %d/%d); looping back to dependency_mapper", attempts + 1, cap)
         return "dependency_mapper"
     
+    logger.warning("[Router] Dependency evaluation retry cap reached (%d/%d); proceeding to documenter", attempts, cap)
     return "documenter"
 
 
@@ -77,8 +103,10 @@ def route_after_doc_eval(state: PipelineState) -> Literal["doc_refiner", "code_g
             if not latest.passed:
                 attempts = retry_counts.get(f"{cid}:documentation", 0)
                 if attempts < cap:
+                    logger.warning("[Router] Doc evaluation failed for chunk %s (Attempt %d/%d); routing to doc_refiner", cid, attempts + 1, cap)
                     return "doc_refiner"
 
+    logger.info("[Router] Documentation evaluation complete; proceeding to code_generator")
     return "code_generator"
 
 
@@ -96,8 +124,10 @@ def route_after_code_eval(state: PipelineState) -> Literal["code_refiner", "test
             if not latest.passed:
                 attempts = retry_counts.get(f"{cid}:code_generation", 0)
                 if attempts < cap:
+                    logger.warning("[Router] Code evaluation failed for chunk %s (Attempt %d/%d); routing to code_refiner", cid, attempts + 1, cap)
                     return "code_refiner"
 
+    logger.info("[Router] Code evaluation complete; proceeding to test_generator")
     return "test_generator"
 
 
@@ -115,6 +145,8 @@ def route_after_test_exec(state: PipelineState) -> Literal["code_refiner", "repo
             if not latest.passed:
                 attempts = retry_counts.get(f"{cid}:test_generation", 0)
                 if attempts < cap:
+                    logger.warning("[Router] Test execution failed for chunk %s (Attempt %d/%d); routing back to code_refiner", cid, attempts + 1, cap)
                     return "code_refiner"
 
+    logger.info("[Router] Test execution phase complete; proceeding to report_builder")
     return "report_builder"

@@ -2,7 +2,7 @@
 pipeline:
   name: "legacy_code_modernization"
   version: "1.0.0"
-  description: "Autonomous multi-agent migration pipeline from COBOL/VB/Java to Python"
+  description: "Autonomous multi-agent migration pipeline from COBOL/VB/Java to Modern Java 17+"
 
 # Pipeline execution modes:
 # - "full": Complete pipeline from ingestion to test execution and dashboard reporting
@@ -49,27 +49,27 @@ agents:
     
   code_generator:
     enabled: true
-    description: "Generates modern, idiomatic, typed Python 3.11+ services."
+    description: "Generates modern, idiomatic Java 17+/21+ services (records, BigDecimal, pattern matching)."
     stage: "code_generation"
     
   code_evaluator:
     enabled: true
-    description: "Validates generated Python syntax, type safety, and functional parity."
+    description: "Validates generated Java syntax, type safety, and functional parity against legacy source."
     stage: "code_evaluation"
     
   code_refiner:
     enabled: true
-    description: "Refines Python code based on evaluator feedback and test execution failures."
+    description: "Refines Java code based on evaluator feedback and test execution failures."
     stage: "code_refinement"
     
   test_generator:
     enabled: true
-    description: "Generates pytest suites mapping to documented business rules and boundary cases."
+    description: "Generates JUnit 5 test suites mapping to documented business rules and boundary cases."
     stage: "test_generation"
     
   test_executor:
     enabled: true
-    description: "Runs generated unit tests in an isolated sandbox and measures coverage."
+    description: "Validates and records generated JUnit 5 test suites for the Java services."
     stage: "test_execution"
     
   report_builder:

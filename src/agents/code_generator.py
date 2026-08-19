@@ -1,4 +1,4 @@
-"""Agent 8: Code Generator Agent."""
+"""Agent 8: Code Generator Agent (Modern Java 17+/21+ target only)."""
 
 from __future__ import annotations
 import re
@@ -12,455 +12,526 @@ from src.prompts.codegen_prompts import (
 
 
 class CodeGenSchema(BaseModel):
-    module_name: str = Field(description="Suggested Python module or file name")
-    imports: list[str] = Field(default_factory=list, description="Required Python imports")
-    target_code: str = Field(description="Modern, idiomatic, fully runnable Python code")
+    module_name: str = Field(description="Suggested Java module/file stem name")
+    target_java_code: str = Field(description="Modern Java 17+/21+ service implementation")
+    java_class_name: str = Field(default="", description="Java class or record name")
+    java_package: str = Field(default="com.modern.services", description="Java package name")
 
 
 class CodeGeneratorAgent(BaseAgent):
-    """Generates modern Python services from refined documentation and legacy source chunks."""
+    """Generates modern Java 17+/21+ services from refined documentation and legacy source chunks."""
 
     def __init__(self, config_dir: str = "configs"):
         super().__init__("code_generator", config_dir=config_dir)
 
     def generate_chunk_code(self, chunk: ChunkMetadata, doc: DocSection) -> GeneratedCode:
-        """Generates modern Python code for a single chunk."""
+        """Generates modern Java 17+/21+ code for a single chunk."""
+        self.logger.debug("Generating Java 17+ code for chunk %s (%s)", chunk.chunk_id, chunk.language)
+
         def mock_codegen() -> CodeGenSchema:
             clean_name = chunk.name.upper()
             if chunk.language == "cobol":
                 if "TIER" in clean_name or "2100" in clean_name:
-                    code = '''from decimal import Decimal, ROUND_HALF_UP
+                    java_code = '''package com.modern.services;
 
-def calculate_tier_surcharge(credit_tier: str, principal_amount: Decimal) -> Decimal:
-    """Calculates loan tier surcharge based on customer credit tier."""
-    tier = (credit_tier or "").strip().upper()
-    if tier == "A":
-        return Decimal("0.00")
-    elif tier == "B":
-        return (principal_amount * Decimal("0.005")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    elif tier == "C":
-        return (principal_amount * Decimal("0.015")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    else:
-        return (principal_amount * Decimal("0.030")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
+/**
+ * Loan tier surcharge calculator — modernized from COBOL CALCULATE-TIER-SURCHARGE paragraph.
+ */
+public class LoanTierSurchargeService {
+
+    /**
+     * Calculates the surcharge based on the customer credit tier.
+     *
+     * @param creditTier      Customer credit tier: A, B, C, or other.
+     * @param principalAmount Loan principal amount.
+     * @return Surcharge amount rounded to 2 decimal places.
+     */
+    public BigDecimal calculateTierSurcharge(String creditTier, BigDecimal principalAmount) {
+        if (principalAmount == null) return BigDecimal.ZERO;
+        String tier = (creditTier != null) ? creditTier.trim().toUpperCase() : "";
+
+        return switch (tier) {
+            case "A" -> BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            case "B" -> principalAmount.multiply(new BigDecimal("0.005")).setScale(2, RoundingMode.HALF_UP);
+            case "C" -> principalAmount.multiply(new BigDecimal("0.015")).setScale(2, RoundingMode.HALF_UP);
+            default -> principalAmount.multiply(new BigDecimal("0.030")).setScale(2, RoundingMode.HALF_UP);
+        };
+    }
+}
 '''
                     return CodeGenSchema(
                         module_name="loan_tier_surcharge",
-                        imports=["from decimal import Decimal, ROUND_HALF_UP"],
-                        target_code=code.strip()
+                        target_java_code=java_code.strip(),
+                        java_class_name="LoanTierSurchargeService"
                     )
                 elif "INTEREST" in clean_name or "2200" in clean_name:
-                    code = '''from decimal import Decimal, ROUND_HALF_UP
-from dataclasses import dataclass
+                    java_code = '''package com.modern.services;
 
-@dataclass
-class InterestCalculationResult:
-    monthly_rate: Decimal
-    monthly_interest: Decimal
-    total_interest: Decimal
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
-def calculate_interest(
-    principal_amount: Decimal, 
-    annual_interest_rate_pct: Decimal, 
-    prior_total_interest: Decimal = Decimal("0.00")
-) -> InterestCalculationResult:
-    """Calculates monthly interest rate and charge from annual percentage."""
-    monthly_rate = (annual_interest_rate_pct / Decimal("100.0")) / Decimal("12.0")
-    monthly_interest = (principal_amount * monthly_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    new_total = prior_total_interest + monthly_interest
-    return InterestCalculationResult(
-        monthly_rate=monthly_rate,
-        monthly_interest=monthly_interest,
-        total_interest=new_total
-    )
+/**
+ * Loan interest calculator — modernized from COBOL CALCULATE-INTEREST paragraph.
+ */
+public class LoanInterestService {
+
+    /** Result record containing computed interest values. */
+    public record InterestResult(BigDecimal monthlyRate, BigDecimal monthlyInterest, BigDecimal totalInterest) {}
+
+    /**
+     * Calculates monthly interest rate and charge from annual percentage.
+     *
+     * @param principal     Loan principal amount.
+     * @param annualRatePct Annual interest rate in percent (e.g. 6.0 for 6%).
+     * @param priorTotal    Previously accumulated total interest.
+     * @return InterestResult with monthly rate, monthly interest, and running total.
+     */
+    public InterestResult calculateInterest(BigDecimal principal, BigDecimal annualRatePct, BigDecimal priorTotal) {
+        BigDecimal prior = priorTotal != null ? priorTotal : BigDecimal.ZERO;
+        BigDecimal monthlyRate = annualRatePct.divide(new BigDecimal("1200.0"), 6, RoundingMode.HALF_UP);
+        BigDecimal monthlyInterest = principal.multiply(monthlyRate).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal newTotal = prior.add(monthlyInterest);
+        return new InterestResult(monthlyRate, monthlyInterest, newTotal);
+    }
+}
 '''
                     return CodeGenSchema(
                         module_name="loan_interest_calculator",
-                        imports=["from decimal import Decimal, ROUND_HALF_UP", "from dataclasses import dataclass"],
-                        target_code=code.strip()
+                        target_java_code=java_code.strip(),
+                        java_class_name="LoanInterestService"
                     )
                 elif "AMORTIZATION" in clean_name or "2300" in clean_name:
-                    code = '''from decimal import Decimal, ROUND_HALF_UP
-from dataclasses import dataclass
+                    java_code = '''package com.modern.services;
 
-@dataclass
-class AmortizationResult:
-    monthly_payment: Decimal
-    principal_paid: Decimal
-    final_balance: Decimal
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
-def compute_amortization(
-    principal_amt: Decimal,
-    term_months: int,
-    monthly_rate: Decimal,
-    monthly_interest: Decimal,
-    tier_surcharge: Decimal = Decimal("0.00")
-) -> AmortizationResult:
-    """Computes monthly annuity payment, principal deduction, and remaining balance."""
-    if term_months <= 0:
-        raise ValueError("Loan term months must be greater than 0")
-    
-    if monthly_rate > Decimal("0"):
-        r = float(monthly_rate)
-        p = float(principal_amt)
-        n = int(term_months)
-        payment_float = (p * r) / (1.0 - (1.0 + r) ** (-n))
-        monthly_payment = Decimal(str(payment_float)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    else:
-        monthly_payment = (principal_amt / Decimal(term_months)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+/**
+ * Loan amortization service — modernized from COBOL COMPUTE-AMORTIZATION paragraph.
+ */
+public class LoanAmortizationService {
 
-    principal_paid = (monthly_payment - monthly_interest).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    final_balance = (principal_amt - principal_paid + tier_surcharge).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    /** Result record for amortization computation. */
+    public record AmortizationResult(BigDecimal monthlyPayment, BigDecimal principalPaid, BigDecimal finalBalance) {}
 
-    return AmortizationResult(
-        monthly_payment=monthly_payment,
-        principal_paid=principal_paid,
-        final_balance=final_balance
-    )
+    /**
+     * Computes monthly payment, principal paid, and remaining balance.
+     *
+     * @param principal       Loan principal.
+     * @param termMonths      Loan term in months (must be > 0).
+     * @param monthlyRate     Monthly interest rate.
+     * @param monthlyInterest Monthly interest amount.
+     * @param tierSurcharge   Optional tier surcharge.
+     * @return AmortizationResult.
+     * @throws IllegalArgumentException if termMonths <= 0.
+     */
+    public AmortizationResult computeAmortization(BigDecimal principal, int termMonths,
+            BigDecimal monthlyRate, BigDecimal monthlyInterest, BigDecimal tierSurcharge) {
+        if (termMonths <= 0) throw new IllegalArgumentException("Loan term months must be > 0");
+
+        BigDecimal surcharge = tierSurcharge != null ? tierSurcharge : BigDecimal.ZERO;
+        BigDecimal monthlyPayment;
+
+        if (monthlyRate.compareTo(BigDecimal.ZERO) > 0) {
+            double r = monthlyRate.doubleValue();
+            double p = principal.doubleValue();
+            double pay = (p * r) / (1.0 - Math.pow(1.0 + r, -termMonths));
+            monthlyPayment = BigDecimal.valueOf(pay).setScale(2, RoundingMode.HALF_UP);
+        } else {
+            monthlyPayment = principal.divide(BigDecimal.valueOf(termMonths), 2, RoundingMode.HALF_UP);
+        }
+
+        BigDecimal principalPaid = monthlyPayment.subtract(monthlyInterest).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal finalBalance = principal.subtract(principalPaid).add(surcharge).setScale(2, RoundingMode.HALF_UP);
+        return new AmortizationResult(monthlyPayment, principalPaid, finalBalance);
+    }
+}
 '''
                     return CodeGenSchema(
                         module_name="loan_amortization",
-                        imports=["from decimal import Decimal, ROUND_HALF_UP", "from dataclasses import dataclass"],
-                        target_code=code.strip()
+                        target_java_code=java_code.strip(),
+                        java_class_name="LoanAmortizationService"
                     )
                 else:
-                    func_name = re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_")
-                    code = f'''from typing import Dict, Any
+                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
+                    java_code = f'''package com.modern.services;
 
-def execute_{func_name}(context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    """Modernized service routine for COBOL block {chunk.name}."""
-    ctx = dict(context) if context else {{}}
-    ctx["status"] = "SUCCESS"
-    ctx["processed_{func_name}"] = True
-    return ctx
+import java.util.Map;
+import java.util.HashMap;
+
+/** Modernized service for COBOL block {chunk.name}. */
+public class {class_name} {{
+    public Map<String, Object> execute(Map<String, Object> context) {{
+        Map<String, Object> ctx = context != null ? new HashMap<>(context) : new HashMap<>();
+        ctx.put("status", "SUCCESS");
+        ctx.put("processed", true);
+        return ctx;
+    }}
+}}
 '''
                     return CodeGenSchema(
-                        module_name=func_name,
-                        imports=["from typing import Dict, Any"],
-                        target_code=code.strip()
+                        module_name=re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_"),
+                        target_java_code=java_code.strip(),
+                        java_class_name=class_name
                     )
+
             elif chunk.language == "vb":
                 if "ValidateCustomer" in chunk.name:
-                    code = '''import re
-from dataclasses import dataclass, field
-from typing import List
+                    java_code = '''package com.modern.services;
 
-@dataclass
-class CustomerRecord:
-    customer_id: str
-    full_name: str
-    age: int
-    credit_score: int
-    annual_income: float
-    total_debt: float
-    email: str
-    is_active: bool = True
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
 
-@dataclass
-class ValidationResult:
-    is_valid: bool
-    risk_category: str
-    max_loan_eligibility: float
-    debt_to_income_ratio: float
-    error_messages: List[str] = field(default_factory=list)
+/**
+ * Customer validator — modernized from VB ValidateCustomer routine.
+ */
+public class CustomerValidator {
 
-class CustomerValidator:
-    MIN_AGE: int = 18
-    MAX_AGE: int = 120
-    MIN_CREDIT_SCORE: int = 300
-    MAX_CREDIT_SCORE: int = 850
-    EMAIL_PATTERN: re.Pattern = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
-    def validate_customer(self, cust: CustomerRecord) -> ValidationResult:
-        errors: List[str] = []
+    /** Immutable customer data record. */
+    public record CustomerRecord(
+            String customerId, String fullName, int age, int creditScore,
+            double annualIncome, double totalDebt, String email, boolean isActive) {}
 
-        if cust.age < self.MIN_AGE or cust.age > self.MAX_AGE:
-            errors.append("Customer age must be between 18 and 120.")
+    /** Validation result record. */
+    public record ValidationResult(
+            boolean isValid, String riskCategory, double maxLoanEligibility,
+            double debtToIncomeRatio, List<String> errorMessages) {}
 
-        if cust.credit_score < self.MIN_CREDIT_SCORE or cust.credit_score > self.MAX_CREDIT_SCORE:
-            errors.append("Credit score is out of standard range (300-850).")
+    /**
+     * Validates a customer record and determines loan eligibility.
+     *
+     * @param cust The customer record.
+     * @return ValidationResult with risk category and eligibility.
+     */
+    public ValidationResult validateCustomer(CustomerRecord cust) {
+        List<String> errors = new ArrayList<>();
 
-        if not cust.email or not self.EMAIL_PATTERN.match(cust.email):
-            errors.append("Invalid customer email address format.")
+        if (cust.age() < 18 || cust.age() > 120)
+            errors.add("Customer age must be between 18 and 120.");
+        if (cust.creditScore() < 300 || cust.creditScore() > 850)
+            errors.add("Credit score is out of standard range (300-850).");
+        if (cust.email() == null || !EMAIL_PATTERN.matcher(cust.email()).matches())
+            errors.add("Invalid customer email address format.");
 
-        if cust.annual_income > 0:
-            dti = round((cust.total_debt / cust.annual_income) * 100.0, 2)
-        else:
-            dti = 999.99
-            errors.append("Annual income must be strictly greater than zero.")
+        double dti = cust.annualIncome() > 0
+                ? Math.round((cust.totalDebt() / cust.annualIncome()) * 10000.0) / 100.0
+                : 999.99;
+        if (cust.annualIncome() <= 0)
+            errors.add("Annual income must be strictly greater than zero.");
+        if (!cust.isActive())
+            errors.add("Inactive customer accounts cannot be processed for credit.");
 
-        if not cust.is_active:
-            errors.append("Inactive customer accounts cannot be processed for credit.")
-
-        if not errors:
-            risk_category = self.determine_risk_category(cust.credit_score, dti)
-            loan_limit = self.calculate_loan_limit(cust.annual_income, risk_category)
-            return ValidationResult(
-                is_valid=True,
-                risk_category=risk_category,
-                max_loan_eligibility=loan_limit,
-                debt_to_income_ratio=dti,
-                error_messages=[]
-            )
-        else:
-            return ValidationResult(
-                is_valid=False,
-                risk_category="REJECTED",
-                max_loan_eligibility=0.0,
-                debt_to_income_ratio=dti,
-                error_messages=errors
-            )
-
-    @staticmethod
-    def determine_risk_category(score: int, dti: float) -> str:
-        if score >= 750 and dti <= 35.0:
-            return "LOW_RISK_PRIME"
-        elif score >= 650 and dti <= 45.0:
-            return "MEDIUM_RISK_STANDARD"
-        elif score >= 580 and dti <= 50.0:
-            return "HIGH_RISK_SUBPRIME"
-        return "INELIGIBLE"
-
-    @staticmethod
-    def calculate_loan_limit(income: float, risk_tier: str) -> float:
-        multipliers = {
-            "LOW_RISK_PRIME": 4.5,
-            "MEDIUM_RISK_STANDARD": 3.0,
-            "HIGH_RISK_SUBPRIME": 1.5
+        if (errors.isEmpty()) {
+            String risk = determineRiskCategory(cust.creditScore(), dti);
+            double limit = calculateLoanLimit(cust.annualIncome(), risk);
+            return new ValidationResult(true, risk, limit, dti, List.of());
         }
-        return round(income * multipliers.get(risk_tier, 0.0), 2)
+        return new ValidationResult(false, "REJECTED", 0.0, dti, errors);
+    }
+
+    /** Determines risk category from credit score and DTI ratio. */
+    public static String determineRiskCategory(int score, double dti) {
+        if (score >= 750 && dti <= 35.0) return "LOW_RISK_PRIME";
+        if (score >= 650 && dti <= 45.0) return "MEDIUM_RISK_STANDARD";
+        if (score >= 580 && dti <= 50.0) return "HIGH_RISK_SUBPRIME";
+        return "INELIGIBLE";
+    }
+
+    /** Calculates maximum loan eligibility based on income and risk tier. */
+    public static double calculateLoanLimit(double income, String riskTier) {
+        return switch (riskTier) {
+            case "LOW_RISK_PRIME" -> Math.round(income * 4.5 * 100.0) / 100.0;
+            case "MEDIUM_RISK_STANDARD" -> Math.round(income * 3.0 * 100.0) / 100.0;
+            case "HIGH_RISK_SUBPRIME" -> Math.round(income * 1.5 * 100.0) / 100.0;
+            default -> 0.0;
+        };
+    }
+}
 '''
                     return CodeGenSchema(
                         module_name="customer_validator",
-                        imports=["import re", "from dataclasses import dataclass, field", "from typing import List"],
-                        target_code=code.strip()
+                        target_java_code=java_code.strip(),
+                        java_class_name="CustomerValidator"
                     )
                 elif "DetermineRiskCategory" in chunk.name:
-                    code = '''def determine_risk_category(score: int, dti: float) -> str:
-    """Evaluates customer credit tier from score and DTI."""
-    if score >= 750 and dti <= 35.0:
-        return "LOW_RISK_PRIME"
-    elif score >= 650 and dti <= 45.0:
-        return "MEDIUM_RISK_STANDARD"
-    elif score >= 580 and dti <= 50.0:
-        return "HIGH_RISK_SUBPRIME"
-    return "INELIGIBLE"
+                    java_code = '''package com.modern.services;
+
+/** Risk category determination — modernized from VB DetermineRiskCategory. */
+public class RiskCategoryService {
+
+    /**
+     * Determines credit risk category from score and debt-to-income ratio.
+     *
+     * @param score Credit score (300–850).
+     * @param dti   Debt-to-income ratio as percentage.
+     * @return Risk tier string.
+     */
+    public static String determineRiskCategory(int score, double dti) {
+        if (score >= 750 && dti <= 35.0) return "LOW_RISK_PRIME";
+        if (score >= 650 && dti <= 45.0) return "MEDIUM_RISK_STANDARD";
+        if (score >= 580 && dti <= 50.0) return "HIGH_RISK_SUBPRIME";
+        return "INELIGIBLE";
+    }
+}
 '''
                     return CodeGenSchema(
-                        module_name="risk_category",
-                        imports=[],
-                        target_code=code.strip()
+                        module_name="risk_category_service",
+                        target_java_code=java_code.strip(),
+                        java_class_name="RiskCategoryService"
                     )
                 elif "CalculateLoanLimit" in chunk.name:
-                    code = '''def calculate_loan_limit(income: float, risk_tier: str) -> float:
-    """Calculates max loan eligibility multiplier based on risk tier."""
-    multipliers = {
-        "LOW_RISK_PRIME": 4.5,
-        "MEDIUM_RISK_STANDARD": 3.0,
-        "HIGH_RISK_SUBPRIME": 1.5
+                    java_code = '''package com.modern.services;
+
+/** Loan limit calculator — modernized from VB CalculateLoanLimit function. */
+public class LoanLimitService {
+
+    /**
+     * Calculates maximum loan eligibility based on income and risk tier.
+     *
+     * @param income   Annual income.
+     * @param riskTier Determined risk tier.
+     * @return Maximum loan amount.
+     */
+    public static double calculateLoanLimit(double income, String riskTier) {
+        return switch (riskTier) {
+            case "LOW_RISK_PRIME" -> Math.round(income * 4.5 * 100.0) / 100.0;
+            case "MEDIUM_RISK_STANDARD" -> Math.round(income * 3.0 * 100.0) / 100.0;
+            case "HIGH_RISK_SUBPRIME" -> Math.round(income * 1.5 * 100.0) / 100.0;
+            default -> 0.0;
+        };
     }
-    return round(income * multipliers.get(risk_tier, 0.0), 2)
+}
 '''
                     return CodeGenSchema(
-                        module_name="loan_limit",
-                        imports=[],
-                        target_code=code.strip()
+                        module_name="loan_limit_service",
+                        target_java_code=java_code.strip(),
+                        java_class_name="LoanLimitService"
                     )
                 else:
-                    func_name = re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_")
-                    code = f'''def execute_{func_name}(*args, **kwargs) -> dict:
-    """Modernized VB routine for {chunk.name}."""
-    return {{"status": "SUCCESS", "routine": "{chunk.name}"}}
+                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
+                    java_code = f'''package com.modern.services;
+
+import java.util.Map;
+
+/** Modernized Java service for VB routine {chunk.name}. */
+public class {class_name} {{
+    public Map<String, String> execute() {{
+        return Map.of("status", "SUCCESS", "routine", "{chunk.name}");
+    }}
+}}
 '''
                     return CodeGenSchema(
-                        module_name=func_name,
-                        imports=[],
-                        target_code=code.strip()
+                        module_name=re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_"),
+                        target_java_code=java_code.strip(),
+                        java_class_name=class_name
                     )
+
             elif chunk.language == "java":
                 if "processDeposit" in chunk.name:
-                    code = '''from decimal import Decimal, ROUND_HALF_UP
-from dataclasses import dataclass, field
-from typing import List
+                    java_code = '''package com.modern.services;
 
-@dataclass
-class TransactionRecord:
-    transaction_id: str
-    account_id: str
-    type: str
-    amount: Decimal
-    resulting_balance: Decimal
-    is_approved: bool
-    status_message: str
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
 
-@dataclass
-class BankAccount:
-    account_id: str
-    current_balance: Decimal = Decimal("0.00")
-    transaction_history: List[TransactionRecord] = field(default_factory=list)
+/**
+ * Deposit processing service — modernized from legacy Java AccountProcessor.processDeposit.
+ */
+public class ModernDepositService {
 
-def process_deposit(account: BankAccount, tx_id: str, amount: Decimal) -> TransactionRecord:
-    """Processes cash deposit into bank account."""
-    if amount is None or amount <= Decimal("0.00"):
-        rec = TransactionRecord(
-            transaction_id=tx_id,
-            account_id=account.account_id,
-            type="DEPOSIT",
-            amount=amount if amount else Decimal("0.00"),
-            resulting_balance=account.current_balance,
-            is_approved=False,
-            status_message="Deposit amount must be positive."
-        )
-        account.transaction_history.append(rec)
-        return rec
+    /** Immutable transaction record. */
+    public record TransactionRecord(
+            String transactionId, String accountId, String type,
+            BigDecimal amount, BigDecimal resultingBalance,
+            boolean isApproved, String statusMessage) {}
 
-    new_bal = (account.current_balance + amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    account.current_balance = new_bal
-    rec = TransactionRecord(
-        transaction_id=tx_id,
-        account_id=account.account_id,
-        type="DEPOSIT",
-        amount=amount,
-        resulting_balance=new_bal,
-        is_approved=True,
-        status_message="Deposit completed successfully."
-    )
-    account.transaction_history.append(rec)
-    return rec
+    /** Mutable bank account aggregate. */
+    public static class BankAccount {
+        private final String accountId;
+        private BigDecimal currentBalance;
+        private final List<TransactionRecord> transactionHistory = new ArrayList<>();
+
+        public BankAccount(String accountId, BigDecimal initialBalance) {
+            this.accountId = accountId;
+            this.currentBalance = initialBalance != null ? initialBalance : BigDecimal.ZERO;
+        }
+
+        public String getAccountId() { return accountId; }
+        public BigDecimal getCurrentBalance() { return currentBalance; }
+        public void setCurrentBalance(BigDecimal balance) { this.currentBalance = balance; }
+        public List<TransactionRecord> getTransactionHistory() { return transactionHistory; }
+    }
+
+    /**
+     * Processes a cash deposit into the bank account.
+     *
+     * @param account The bank account.
+     * @param txId    Transaction identifier.
+     * @param amount  Deposit amount (must be positive).
+     * @return TransactionRecord with approval status and new balance.
+     */
+    public TransactionRecord processDeposit(BankAccount account, String txId, BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            TransactionRecord rejected = new TransactionRecord(
+                    txId, account.getAccountId(), "DEPOSIT", amount,
+                    account.getCurrentBalance(), false, "Deposit amount must be positive.");
+            account.getTransactionHistory().add(rejected);
+            return rejected;
+        }
+
+        BigDecimal newBal = account.getCurrentBalance().add(amount).setScale(2, RoundingMode.HALF_UP);
+        account.setCurrentBalance(newBal);
+        TransactionRecord success = new TransactionRecord(
+                txId, account.getAccountId(), "DEPOSIT", amount,
+                newBal, true, "Deposit completed successfully.");
+        account.getTransactionHistory().add(success);
+        return success;
+    }
+}
 '''
                     return CodeGenSchema(
                         module_name="deposit_service",
-                        imports=["from decimal import Decimal, ROUND_HALF_UP", "from dataclasses import dataclass, field"],
-                        target_code=code.strip()
+                        target_java_code=java_code.strip(),
+                        java_class_name="ModernDepositService"
                     )
                 elif "processWithdrawal" in chunk.name:
-                    code = '''from decimal import Decimal, ROUND_HALF_UP
-from enum import Enum
-from dataclasses import dataclass, field
-from typing import List
+                    java_code = '''package com.modern.services;
 
-class AccountType(Enum):
-    CHECKING = "CHECKING"
-    SAVINGS = "SAVINGS"
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
 
-@dataclass
-class TransactionRecord:
-    transaction_id: str
-    account_id: str
-    type: str
-    amount: Decimal
-    resulting_balance: Decimal
-    is_approved: bool
-    status_message: str
+/**
+ * Withdrawal processing service — modernized from legacy Java AccountProcessor.processWithdrawal.
+ */
+public class ModernWithdrawalService {
 
-@dataclass
-class BankAccount:
-    account_id: str
-    account_type: AccountType = AccountType.CHECKING
-    current_balance: Decimal = Decimal("0.00")
-    overdraft_protection_enabled: bool = False
-    daily_withdrawn_amount: Decimal = Decimal("0.00")
-    transaction_history: List[TransactionRecord] = field(default_factory=list)
+    private static final BigDecimal OVERDRAFT_FEE = new BigDecimal("35.00");
+    private static final BigDecimal DAILY_WITHDRAWAL_LIMIT = new BigDecimal("2500.00");
 
-OVERDRAFT_FEE = Decimal("35.00")
-DAILY_WITHDRAWAL_LIMIT = Decimal("2500.00")
+    /** Immutable transaction record. */
+    public record TransactionRecord(
+            String transactionId, String accountId, String type,
+            BigDecimal amount, BigDecimal resultingBalance,
+            boolean isApproved, String statusMessage) {}
 
-def process_withdrawal(account: BankAccount, tx_id: str, amount: Decimal) -> TransactionRecord:
-    """Processes cash withdrawal with overdraft protection check."""
-    if amount is None or amount <= Decimal("0.00"):
-        rec = TransactionRecord(
-            transaction_id=tx_id,
-            account_id=account.account_id,
-            type="WITHDRAWAL",
-            amount=amount if amount else Decimal("0.00"),
-            resulting_balance=account.current_balance,
-            is_approved=False,
-            status_message="Withdrawal amount must be positive."
-        )
-        account.transaction_history.append(rec)
-        return rec
+    /** Mutable bank account aggregate. */
+    public static class BankAccount {
+        private final String accountId;
+        private BigDecimal currentBalance;
+        private final boolean overdraftProtectionEnabled;
+        private BigDecimal dailyWithdrawnAmount = BigDecimal.ZERO;
+        private final List<TransactionRecord> transactionHistory = new ArrayList<>();
 
-    if account.daily_withdrawn_amount + amount > DAILY_WITHDRAWAL_LIMIT:
-        rec = TransactionRecord(
-            transaction_id=tx_id,
-            account_id=account.account_id,
-            type="WITHDRAWAL",
-            amount=amount,
-            resulting_balance=account.current_balance,
-            is_approved=False,
-            status_message="Exceeded daily withdrawal limit."
-        )
-        account.transaction_history.append(rec)
-        return rec
+        public BankAccount(String accountId, BigDecimal initialBalance, boolean overdraftProtection) {
+            this.accountId = accountId;
+            this.currentBalance = initialBalance != null ? initialBalance : BigDecimal.ZERO;
+            this.overdraftProtectionEnabled = overdraftProtection;
+        }
 
-    if account.current_balance >= amount:
-        new_bal = (account.current_balance - amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        account.current_balance = new_bal
-        account.daily_withdrawn_amount += amount
-        rec = TransactionRecord(
-            transaction_id=tx_id,
-            account_id=account.account_id,
-            type="WITHDRAWAL",
-            amount=amount,
-            resulting_balance=new_bal,
-            is_approved=True,
-            status_message="Withdrawal approved."
-        )
-        account.transaction_history.append(rec)
-        return rec
-    elif account.overdraft_protection_enabled:
-        new_bal = (account.current_balance - amount - OVERDRAFT_FEE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        account.current_balance = new_bal
-        account.daily_withdrawn_amount += amount
-        rec = TransactionRecord(
-            transaction_id=tx_id,
-            account_id=account.account_id,
-            type="WITHDRAWAL",
-            amount=amount,
-            resulting_balance=new_bal,
-            is_approved=True,
-            status_message="Overdraft approved with $35 fee applied."
-        )
-        account.transaction_history.append(rec)
-        return rec
-    else:
-        rec = TransactionRecord(
-            transaction_id=tx_id,
-            account_id=account.account_id,
-            type="WITHDRAWAL",
-            amount=amount,
-            resulting_balance=account.current_balance,
-            is_approved=False,
-            status_message="Insufficient funds and overdraft protection disabled."
-        )
-        account.transaction_history.append(rec)
-        return rec
+        public String getAccountId() { return accountId; }
+        public BigDecimal getCurrentBalance() { return currentBalance; }
+        public void setCurrentBalance(BigDecimal balance) { this.currentBalance = balance; }
+        public boolean isOverdraftProtectionEnabled() { return overdraftProtectionEnabled; }
+        public BigDecimal getDailyWithdrawnAmount() { return dailyWithdrawnAmount; }
+        public void addDailyWithdrawnAmount(BigDecimal amount) {
+            this.dailyWithdrawnAmount = this.dailyWithdrawnAmount.add(amount);
+        }
+        public List<TransactionRecord> getTransactionHistory() { return transactionHistory; }
+    }
+
+    /**
+     * Processes a cash withdrawal with overdraft protection and daily limit checks.
+     *
+     * @param account The bank account.
+     * @param txId    Transaction identifier.
+     * @param amount  Withdrawal amount (must be positive).
+     * @return TransactionRecord with approval status and resulting balance.
+     */
+    public TransactionRecord processWithdrawal(BankAccount account, String txId, BigDecimal amount) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            TransactionRecord rejected = new TransactionRecord(
+                    txId, account.getAccountId(), "WITHDRAWAL", amount,
+                    account.getCurrentBalance(), false, "Withdrawal amount must be positive.");
+            account.getTransactionHistory().add(rejected);
+            return rejected;
+        }
+
+        if (account.getDailyWithdrawnAmount().add(amount).compareTo(DAILY_WITHDRAWAL_LIMIT) > 0) {
+            TransactionRecord rejected = new TransactionRecord(
+                    txId, account.getAccountId(), "WITHDRAWAL", amount,
+                    account.getCurrentBalance(), false, "Exceeded daily withdrawal limit.");
+            account.getTransactionHistory().add(rejected);
+            return rejected;
+        }
+
+        if (account.getCurrentBalance().compareTo(amount) >= 0) {
+            BigDecimal newBal = account.getCurrentBalance().subtract(amount).setScale(2, RoundingMode.HALF_UP);
+            account.setCurrentBalance(newBal);
+            account.addDailyWithdrawnAmount(amount);
+            TransactionRecord success = new TransactionRecord(
+                    txId, account.getAccountId(), "WITHDRAWAL", amount, newBal, true, "Withdrawal approved.");
+            account.getTransactionHistory().add(success);
+            return success;
+        } else if (account.isOverdraftProtectionEnabled()) {
+            BigDecimal newBal = account.getCurrentBalance().subtract(amount).subtract(OVERDRAFT_FEE)
+                    .setScale(2, RoundingMode.HALF_UP);
+            account.setCurrentBalance(newBal);
+            account.addDailyWithdrawnAmount(amount);
+            TransactionRecord success = new TransactionRecord(
+                    txId, account.getAccountId(), "WITHDRAWAL", amount, newBal, true,
+                    "Overdraft approved with $35 fee applied.");
+            account.getTransactionHistory().add(success);
+            return success;
+        } else {
+            TransactionRecord rejected = new TransactionRecord(
+                    txId, account.getAccountId(), "WITHDRAWAL", amount,
+                    account.getCurrentBalance(), false,
+                    "Insufficient funds and overdraft protection disabled.");
+            account.getTransactionHistory().add(rejected);
+            return rejected;
+        }
+    }
+}
 '''
                     return CodeGenSchema(
                         module_name="withdrawal_service",
-                        imports=["from decimal import Decimal, ROUND_HALF_UP", "from enum import Enum", "from dataclasses import dataclass, field"],
-                        target_code=code.strip()
+                        target_java_code=java_code.strip(),
+                        java_class_name="ModernWithdrawalService"
                     )
                 else:
-                    func_name = re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_")
-                    code = f'''def execute_{func_name}(*args, **kwargs) -> dict:
-    """Modernized Java method service for {chunk.name}."""
-    return {{"status": "SUCCESS", "method": "{chunk.name}"}}
+                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
+                    java_code = f'''package com.modern.services;
+
+import java.util.Map;
+
+/** Modernized Java 17+ service for legacy method {chunk.name}. */
+public class {class_name} {{
+    public Map<String, String> execute() {{
+        return Map.of("status", "SUCCESS", "method", "{chunk.name}");
+    }}
+}}
 '''
                     return CodeGenSchema(
-                        module_name=func_name,
-                        imports=[],
-                        target_code=code.strip()
+                        module_name=re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_"),
+                        target_java_code=java_code.strip(),
+                        java_class_name=class_name
                     )
 
             # Generic fallback
-            gen_code = f'''def execute_service(context=None) -> dict:
-    """Generic Python modernization stub."""
-    return {{"status": "SUCCESS", "chunk": "{chunk.chunk_id}"}}
-'''
+            class_name = "GenericService"
             return CodeGenSchema(
                 module_name="generic_service",
-                imports=[],
-                target_code=gen_code.strip()
+                target_java_code=f'package com.modern.services;\n/** Generic service for chunk {chunk.chunk_id}. */\npublic class {class_name} {{\n    public String execute() {{ return "{chunk.chunk_id}"; }}\n}}',
+                java_class_name=class_name
             )
 
         user_prompt = CODEGEN_USER_PROMPT.format(
@@ -482,11 +553,16 @@ def process_withdrawal(account: BankAccount, tx_id: str, amount: Decimal) -> Tra
             mock_fallback_generator=mock_codegen
         )
 
+        self.logger.info("Generated Java 17+ code (%d lines) for chunk %s",
+                         len(res.target_java_code.splitlines()), chunk.chunk_id)
         return GeneratedCode(
             chunk_id=chunk.chunk_id,
-            target_code=res.target_code,
+            target_code="",          # Java-only mode: no Python output
             module_name=res.module_name,
-            imports=res.imports,
+            imports=[],
+            target_java_code=res.target_java_code,
+            java_class_name=res.java_class_name,
+            java_package=res.java_package,
             version=1
         )
 
@@ -501,6 +577,7 @@ def process_withdrawal(account: BankAccount, tx_id: str, amount: Decimal) -> Tra
         else:
             target_chunks = [chunks[cid] for cid in docs if cid in chunks]
 
+        self.logger.info("Generating modern Java 17+ code across %d chunks", len(target_chunks))
         for chunk in target_chunks:
             if chunk.chunk_id not in generated:
                 doc = docs[chunk.chunk_id]

@@ -26,11 +26,11 @@ class DocumenterAgent(BaseAgent):
 
     def execute_chunk(self, chunk: ChunkMetadata, state: PipelineState) -> DocSection:
         """Generates documentation for a single chunk."""
+        self.logger.debug("Generating documentation for chunk: %s (%s)", chunk.chunk_id, chunk.language)
         edges = state.get("dependency_graph", [])
         chunk_edges = [e for e in edges if e.source_chunk == chunk.chunk_id or e.target_chunk == chunk.chunk_id]
         dep_ctx = "\n".join([f"- {e.edge_type}: {e.source_chunk} -> {e.target_chunk} ({e.description})" for e in chunk_edges]) or "None"
 
-        # Deterministic mock fallback generator for testing & offline mode
         def mock_doc() -> DocSectionSchema:
             if chunk.language == "cobol":
                 if "TIER" in chunk.name or "2100" in chunk.name:
@@ -119,7 +119,6 @@ class DocumenterAgent(BaseAgent):
                         control_flow="Check amount > 0; check daily limit; if sufficient funds subtract amount and check checking penalty; else if overdraft enabled subtract amount and $35 fee; else reject."
                     )
 
-            # Generic fallback
             return DocSectionSchema(
                 purpose=f"Executes legacy logic for {chunk.name}.",
                 inputs=["Context variables / parameters"],
@@ -147,6 +146,7 @@ class DocumenterAgent(BaseAgent):
             mock_fallback_generator=mock_doc
         )
 
+        self.logger.info("Documented chunk %s with %d business rules", chunk.chunk_id, len(res.business_rules))
         return DocSection(
             chunk_id=chunk.chunk_id,
             purpose=res.purpose,
@@ -168,6 +168,7 @@ class DocumenterAgent(BaseAgent):
         else:
             target_chunks = chunks
 
+        self.logger.info("Generating documentation for %d chunks", len(target_chunks))
         for chunk in target_chunks:
             if chunk.chunk_id not in docs:
                 doc = self.execute_chunk(chunk, state)

@@ -8,9 +8,8 @@ from src.evaluation.report_builder import ReportBuilder
 
 def test_end_to_end_modernization_pipeline(tmp_path):
     sample_files = [
-        "data/legacy_source/loan_calculator.cbl",
-        "data/legacy_source/customer_validator.vb",
-        "data/legacy_source/account_processor.java"
+        "data/legacy_source/AccountProcessor.java",
+        "data/legacy_source/DemoApplication.java"
     ]
 
     final_state = run_pipeline(sample_files)

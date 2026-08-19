@@ -1,4 +1,4 @@
-"""Unit tests for individual modernization agents."""
+"""Unit tests for individual modernization agents (Java-only target mode)."""
 
 import pytest
 from src.orchestrator.state import ChunkMetadata, PipelineState
@@ -30,7 +30,7 @@ def test_documenter_and_evaluator_flow():
     assert eval_res.score > 0.0
 
 
-def test_codegen_and_testgen_flow():
+def test_codegen_and_testgen_flow_java_only():
     chunk = ChunkMetadata(
         chunk_id="VB_VAL",
         source_file="validator.vb",
@@ -46,8 +46,14 @@ def test_codegen_and_testgen_flow():
     code_agent = CodeGeneratorAgent()
     code_obj = code_agent.generate_chunk_code(chunk, doc)
     assert code_obj.chunk_id == "VB_VAL"
-    assert "class CustomerValidator" in code_obj.target_code or "def" in code_obj.target_code
+    # Java-only mode: target_code is empty
+    assert code_obj.target_code == ""
+    # Java code generated
+    assert "public class CustomerValidator" in code_obj.target_java_code
 
     test_agent = TestGeneratorAgent()
     test_res = test_agent.generate_chunk_tests(chunk, doc, code_obj)
-    assert "def test_" in test_res.test_code
+    # JUnit 5 generated
+    assert "@Test" in test_res.java_test_code
+    # Python test is empty in Java-only mode
+    assert test_res.test_code == ""

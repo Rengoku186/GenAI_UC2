@@ -1,4 +1,4 @@
-"""Base agent abstraction with configuration management and LLM structured invocation."""
+"""Base agent abstraction with configuration management, structured LLM invocation, and logging."""
 
 from __future__ import annotations
 import os
@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Type, TypeVar
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+from src.utils.logger import get_logger
 
 load_dotenv()
 
@@ -18,6 +20,7 @@ class BaseAgent:
 
     def __init__(self, agent_name: str, config_dir: str | Path = "configs"):
         self.agent_name = agent_name
+        self.logger = get_logger(f"Agent.{agent_name}")
         self.config_dir = Path(config_dir)
         self.llm_config = self._load_yaml(self.config_dir / "llm_config.yaml")
         self.thresholds = self._load_yaml(self.config_dir / "thresholds.yaml")
@@ -29,6 +32,7 @@ class BaseAgent:
         
         self._llm = None
         self._init_llm()
+        self.logger.debug("Initialized %s with provider=%s, model=%s, temp=%s", self.agent_name, self.provider, self.model_name, self.temperature)
 
     def _load_yaml(self, path: Path) -> dict[str, Any]:
         """Loads a YAML configuration file safely."""
@@ -36,7 +40,8 @@ class BaseAgent:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     return yaml.safe_load(f) or {}
-            except Exception:
+            except Exception as e:
+                self.logger.warning("Failed to parse YAML file at %s: %s", path, e)
                 return {}
         return {}
 
@@ -57,7 +62,9 @@ class BaseAgent:
                     temperature=self.temperature,
                     api_key=os.getenv("OPENAI_API_KEY")
                 )
-            except Exception:
+                self.logger.info("ChatOpenAI client initialized for %s", self.agent_name)
+            except Exception as e:
+                self.logger.warning("Failed to initialize ChatOpenAI: %s. Falling back to mock.", e)
                 self._llm = None
         elif self.provider == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
             try:
@@ -67,7 +74,9 @@ class BaseAgent:
                     temperature=self.temperature,
                     api_key=os.getenv("ANTHROPIC_API_KEY")
                 )
-            except Exception:
+                self.logger.info("ChatAnthropic client initialized for %s", self.agent_name)
+            except Exception as e:
+                self.logger.warning("Failed to initialize ChatAnthropic: %s. Falling back to mock.", e)
                 self._llm = None
         else:
             self._llm = None
@@ -82,6 +91,7 @@ class BaseAgent:
         """Invokes the LLM with structured output, or falls back to deterministic generator."""
         if self._llm is not None:
             try:
+                self.logger.debug("[%s] Invoking LLM with structured schema %s", self.agent_name, schema.__name__)
                 structured_llm = self._llm.with_structured_output(schema)
                 messages = [
                     {"role": "system", "content": system_prompt},
@@ -89,15 +99,17 @@ class BaseAgent:
                 ]
                 res = structured_llm.invoke(messages)
                 if isinstance(res, schema):
+                    self.logger.info("[%s] Received structured response via %s", self.agent_name, self.provider)
                     return res
                 elif isinstance(res, dict):
                     return schema.model_validate(res)
             except Exception as e:
-                # Log and fallback to mock generator if LLM call fails
-                pass
+                self.logger.warning("[%s] Structured LLM call failed (%s). Falling back to mock generator.", self.agent_name, e)
 
         # Deterministic offline mock generator
         if mock_fallback_generator:
+            self.logger.debug("[%s] Using deterministic mock fallback generator for %s", self.agent_name, schema.__name__)
             return mock_fallback_generator()
         
+        self.logger.error("[%s] No active LLM provider and no mock generator for %s", self.agent_name, schema.__name__)
         raise RuntimeError(f"No active LLM provider and no mock generator for {self.agent_name}")
