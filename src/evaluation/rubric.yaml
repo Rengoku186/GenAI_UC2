@@ -1,0 +1,59 @@
+# Evaluation Rubric Definitions for Modernization Pipeline
+
+stages:
+  chunk_evaluation:
+    criteria:
+      - name: "Boundary Preservation"
+        weight: 0.4
+        description: "Checks that paragraph/class/method boundaries are intact without accidental truncation."
+      - name: "Semantic Completeness"
+        weight: 0.3
+        description: "Ensures no logic or subroutines were orphaned."
+      - name: "Coverage"
+        weight: 0.3
+        description: "100% of non-comment legacy source code lines are accounted for."
+
+  dependency_evaluation:
+    criteria:
+      - name: "Call Graph Fidelity"
+        weight: 0.4
+        description: "All PERFORM, CALL, and method invocations mapped."
+      - name: "Data Coupling"
+        weight: 0.3
+        description: "Shared Working-Storage variables and globals correctly linked."
+      - name: "I/O Resources"
+        weight: 0.3
+        description: "File and database access points accurately referenced."
+
+  doc_evaluation:
+    criteria:
+      - name: "Completeness"
+        weight: 0.35
+        description: "All inputs, outputs, and parameters documented."
+      - name: "Faithfulness / No Hallucination"
+        weight: 0.35
+        description: "Documentation makes no claims unsupported by raw source code."
+      - name: "Business Rule Precision"
+        weight: 0.30
+        description: "Formulas, branching decisions, and edge constraints clearly specified."
+
+  code_evaluation:
+    criteria:
+      - name: "Functional Parity"
+        weight: 0.40
+        description: "Accurately replicates legacy calculation logic and edge behavior."
+      - name: "Modern Python Idioms"
+        weight: 0.30
+        description: "PEP 8 compliant, type-annotated, using Decimal for financial precision."
+      - name: "Syntax & Clean AST"
+        weight: 0.30
+        description: "Valid Python 3.11+ AST with no unhandled runtime imports."
+
+  test_execution:
+    criteria:
+      - name: "Test Pass Rate"
+        weight: 0.60
+        description: "100% passing test assertions against modern service."
+      - name: "Rule Coverage"
+        weight: 0.40
+        description: "Pytest cases cover normal, boundary, and error branches."

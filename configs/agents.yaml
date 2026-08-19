@@ -1,0 +1,78 @@
+# Configuration of active agents and pipeline execution modes
+pipeline:
+  name: "legacy_code_modernization"
+  version: "1.0.0"
+  description: "Autonomous multi-agent migration pipeline from COBOL/VB/Java to Python"
+
+# Pipeline execution modes:
+# - "full": Complete pipeline from ingestion to test execution and dashboard reporting
+# - "docs_only": Ingestion, dependency mapping, documentation and doc evaluation
+# - "code_only": Assumes existing docs, runs code generation, evaluation, and testing
+execution_mode: "full"
+
+agents:
+  ingestion_chunker:
+    enabled: true
+    description: "Parses legacy source files into semantic, language-aware chunks."
+    stage: "chunking"
+    supported_languages: ["cobol", "vb", "java"]
+    
+  dependency_mapper:
+    enabled: true
+    description: "Builds cross-chunk dependency graph including calls, shared state, copybooks, and I/O."
+    stage: "dependency_mapping"
+    
+  chunk_evaluator:
+    enabled: true
+    description: "Validates semantic chunk integrity and ensures no code logic is orphaned."
+    stage: "chunk_evaluation"
+    
+  dependency_evaluator:
+    enabled: true
+    description: "Verifies cross-chunk call graphs and shared references against static AST."
+    stage: "dependency_evaluation"
+    
+  documenter:
+    enabled: true
+    description: "Generates structured documentation per chunk with business rules and flow."
+    stage: "documentation"
+    
+  doc_evaluator:
+    enabled: true
+    description: "Evaluates completeness, hallucination check, and business rule coverage."
+    stage: "doc_evaluation"
+    
+  doc_refiner:
+    enabled: true
+    description: "Iteratively fixes missing business rules and ambiguities in documentation."
+    stage: "doc_refinement"
+    
+  code_generator:
+    enabled: true
+    description: "Generates modern, idiomatic, typed Python 3.11+ services."
+    stage: "code_generation"
+    
+  code_evaluator:
+    enabled: true
+    description: "Validates generated Python syntax, type safety, and functional parity."
+    stage: "code_evaluation"
+    
+  code_refiner:
+    enabled: true
+    description: "Refines Python code based on evaluator feedback and test execution failures."
+    stage: "code_refinement"
+    
+  test_generator:
+    enabled: true
+    description: "Generates pytest suites mapping to documented business rules and boundary cases."
+    stage: "test_generation"
+    
+  test_executor:
+    enabled: true
+    description: "Runs generated unit tests in an isolated sandbox and measures coverage."
+    stage: "test_execution"
+    
+  report_builder:
+    enabled: true
+    description: "Aggregates evaluation history into structured reports for the dashboard."
+    stage: "report_generation"

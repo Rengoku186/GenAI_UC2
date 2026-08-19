@@ -1,0 +1,57 @@
+# LLM Configuration for Modernizer Agents
+
+default:
+  provider: "openai"  # openai, anthropic, or mock
+  model: "gpt-4o"
+  temperature: 0.2
+  max_tokens: 4096
+  timeout: 60
+
+# Per-agent overrides for optimal balance of creativity vs determinism
+agents:
+  ingestion_chunker:
+    temperature: 0.0
+    model: "gpt-4o"
+    
+  dependency_mapper:
+    temperature: 0.0
+    model: "gpt-4o"
+    
+  chunk_evaluator:
+    temperature: 0.0
+    model: "gpt-4o"
+    
+  dependency_evaluator:
+    temperature: 0.0
+    model: "gpt-4o"
+    
+  documenter:
+    temperature: 0.2
+    model: "gpt-4o"
+    
+  doc_evaluator:
+    temperature: 0.0
+    model: "gpt-4o"
+    
+  doc_refiner:
+    temperature: 0.1
+    model: "gpt-4o"
+    
+  code_generator:
+    temperature: 0.1
+    model: "gpt-4o"
+    
+  code_evaluator:
+    temperature: 0.0
+    model: "gpt-4o"
+    
+  code_refiner:
+    temperature: 0.1
+    model: "gpt-4o"
+    
+  test_generator:
+    temperature: 0.2
+    model: "gpt-4o"
+    
+  test_executor:
+    temperature: 0.0

@@ -1,0 +1,23 @@
+# Thresholds and Retry Caps Configuration
+
+# Maximum retry counts per stage before marking needs_human_review = True
+retry_caps:
+  chunking: 2
+  dependency_mapping: 2
+  documentation: 3
+  code_generation: 3
+  test_generation: 3
+
+# Confidence score cutoffs (0.0 to 1.0)
+# A score at or above this threshold is considered passing
+confidence_thresholds:
+  chunk_evaluation: 0.85
+  dependency_evaluation: 0.85
+  doc_evaluation: 0.80
+  code_evaluation: 0.85
+  test_coverage_min_pct: 80.0
+
+# Human-in-the-loop flags
+human_in_the_loop:
+  interrupt_on_low_confidence: false  # Pauses LangGraph execution on human review flag
+  interactive_approval_required: false
