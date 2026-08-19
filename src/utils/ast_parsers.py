@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 _TREE_SITTER_AVAILABLE = False
 _JAVA_PARSER = None
+# The installed tree-sitter Java binding can fault on very large source files
+# on Windows. Route those files through the pure-Python fallback instead.
+TREE_SITTER_MAX_SOURCE_CHARS = int(
+    os.getenv("TREE_SITTER_MAX_SOURCE_CHARS", str(128 * 1024))
+)
 
 try:
     import tree_sitter
@@ -31,8 +36,7 @@ try:
 
     _java_language = tree_sitter.Language(tree_sitter_java.language())
     _JAVA_PARSER = tree_sitter.Parser(_java_language)
-    # Tree-sitter is disabled to avoid crashes; fallback to javalang will be used
-    _TREE_SITTER_AVAILABLE = False
+    _TREE_SITTER_AVAILABLE = True
     logger.debug("Tree-sitter Java parser initialized successfully.")
 except Exception as exc:
     logger.info("Tree-sitter Java parser not available (%s), will use javalang/regex.", exc)
@@ -64,7 +68,11 @@ def parse_java_with_tree_sitter(
     Returns:
         List of (qualified_id, scope, name, code_snippet, start_line, end_line)
     """
-    if not _TREE_SITTER_AVAILABLE or _JAVA_PARSER is None:
+    if (
+        not _TREE_SITTER_AVAILABLE
+        or _JAVA_PARSER is None
+        or len(content) > TREE_SITTER_MAX_SOURCE_CHARS
+    ):
         return None
 
     try:
@@ -88,42 +96,38 @@ def parse_java_with_tree_sitter(
 
         chunks: List[Tuple[str, str, str, str, int, int]] = []
 
-        def traverse(node, current_scope: str):
-            nonlocal chunks
+        # Use an explicit stack rather than recursive descent. Large generated
+        # Java sources can contain enough syntax nodes to overflow the Python
+        # or native tree-sitter call stack during a recursive traversal.
+        pending = [(tree.root_node, base_scope)]
+        class_types = {
+            "class_declaration", "interface_declaration",
+            "enum_declaration", "record_declaration",
+        }
 
-            # Class, interface, enum, record declaration
-            if node.type in ("class_declaration", "interface_declaration", "enum_declaration", "record_declaration"):
+        while pending:
+            node, current_scope = pending.pop()
+
+            if node.type in class_types:
                 name_node = node.child_by_field_name("name")
                 cname = name_node.text.decode("utf-8") if name_node else file_basename
                 next_scope = f"{current_scope}.{cname}" if current_scope else cname
-                for child in node.children:
-                    traverse(child, next_scope)
-                return
+                pending.extend((child, next_scope) for child in reversed(node.children))
+                continue
 
-            # Method or Constructor declaration
             if node.type in ("method_declaration", "constructor_declaration"):
                 name_node = node.child_by_field_name("name")
                 mname = name_node.text.decode("utf-8") if name_node else "unknown"
-                start_l = node.start_point.row + 1
-                end_l = node.end_point.row + 1
-
-                # Clamp lines
-                start_l = max(1, min(start_l, total_lines))
-                end_l = max(start_l, min(end_l, total_lines))
-
-                snippet_lines = lines[start_l - 1:end_l]
-                chunk_code = "\n".join(snippet_lines)
-
+                start_l = max(1, min(node.start_point.row + 1, total_lines))
+                end_l = max(start_l, min(node.end_point.row + 1, total_lines))
+                chunk_code = "\n".join(lines[start_l - 1:end_l])
                 final_scope = current_scope if current_scope else file_basename
                 qid = f"{file_path}::{final_scope}::{mname}"
                 chunks.append((qid, final_scope, mname, chunk_code, start_l, end_l))
-                return
+                continue
 
-            # Recurse through other top-level or container nodes
-            for child in node.children:
-                traverse(child, current_scope)
+            pending.extend((child, current_scope) for child in reversed(node.children))
 
-        traverse(tree.root_node, base_scope)
         return chunks if chunks else None
 
     except Exception as exc:
@@ -148,31 +152,69 @@ def parse_java_with_javalang(
 
         chunks: List[Tuple[str, str, str, str, int, int]] = []
 
-        for type_decl in tree.types:
-            scope = f"{pkg_prefix}{type_decl.name}" if type_decl.name else file_basename
-            methods = list(getattr(type_decl, "methods", [])) + list(getattr(type_decl, "constructors", []))
+        type_nodes = (
+            javalang.tree.ClassDeclaration,
+            javalang.tree.InterfaceDeclaration,
+            javalang.tree.EnumDeclaration,
+            javalang.tree.AnnotationDeclaration,
+        )
+        method_nodes = (
+            javalang.tree.MethodDeclaration,
+            javalang.tree.ConstructorDeclaration,
+        )
 
-            for m in methods:
-                mname = m.name
-                start_l = m.position.line if m.position else 1
+        # ``tree.types`` exposes only top-level declarations. Iterating the
+        # AST retains the parent path, allowing large legacy files with many
+        # nested service classes to be represented completely.
+        for path, node in tree:
+            if not isinstance(node, method_nodes):
+                continue
 
-                # Approximate end line using next method position or closing brace
-                end_l = total_lines
-                # Find matching or next line
-                snippet_lines = lines[start_l - 1:]
-                brace_count = 0
-                started = False
-                for idx, line in enumerate(snippet_lines):
-                    brace_count += line.count("{") - line.count("}")
-                    if "{" in line:
-                        started = True
-                    if started and brace_count <= 0:
-                        end_l = start_l + idx
-                        break
+            enclosing_types = [
+                ancestor.name
+                for ancestor in path
+                if isinstance(ancestor, type_nodes) and getattr(ancestor, "name", None)
+            ]
+            class_scope = ".".join(enclosing_types) or file_basename
+            scope = f"{pkg_prefix}{class_scope}"
+            mname = node.name
+            start_l = node.position.line if node.position else 1
 
-                chunk_code = "\n".join(lines[start_l - 1:end_l])
-                qid = f"{file_path}::{scope}::{mname}"
-                chunks.append((qid, scope, mname, chunk_code, start_l, end_l))
+            # Approximate the method end with balanced braces. This is safe
+            # for well-formed Java and keeps line spans usable if tree-sitter
+            # is unavailable or intentionally bypassed for a large file.
+            end_l = total_lines
+            brace_count = 0
+            started = False
+            for idx, line in enumerate(lines[start_l - 1:]):
+                brace_count += line.count("{") - line.count("}")
+                if "{" in line:
+                    started = True
+                if started and brace_count <= 0:
+                    end_l = start_l + idx
+                    break
+
+            chunk_code = "\n".join(lines[start_l - 1:end_l])
+            qid = f"{file_path}::{scope}::{mname}"
+            chunks.append((qid, scope, mname, chunk_code, start_l, end_l))
+
+        # Java overloads share a method name and scope. Keep normal qualified
+        # IDs stable, but make only colliding IDs line-qualified so graph nodes
+        # cannot silently overwrite each other.
+        qid_counts: Dict[str, int] = {}
+        for qid, *_ in chunks:
+            qid_counts[qid] = qid_counts.get(qid, 0) + 1
+        chunks = [
+            (
+                f"{qid}::line{start_l}" if qid_counts[qid] > 1 else qid,
+                scope,
+                name,
+                code,
+                start_l,
+                end_l,
+            )
+            for qid, scope, name, code, start_l, end_l in chunks
+        ]
 
         return chunks if chunks else None
     except Exception as exc:

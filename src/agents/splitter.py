@@ -184,6 +184,7 @@ def _partition_lines(
     max_lines: int,
     max_chars: int,
     min_lines: int,
+    java_boundary_lines: Optional[Set[int]] = None,
 ) -> List[Tuple[int, int]]:
     """Partition lines into balanced (start_idx, end_idx) index ranges.
 
@@ -224,7 +225,19 @@ def _partition_lines(
                 break
             accum_chars += line_len
 
-        target_step = max(effective_min_lines, min(nominal_step, char_constrained_step))
+        # Ensure min_lines does not violate max_chars limit
+        if char_constrained_step < effective_min_lines:
+            # Cannot satisfy min_lines without exceeding max_chars; cap at char limit and log warning
+            logger.warning(
+                "splitter: min_lines %d cannot be satisfied within max_chars %d; using char_constrained_step %d",
+                effective_min_lines,
+                max_chars,
+                char_constrained_step,
+            )
+            target_step = char_constrained_step
+        else:
+            # Normal case: respect both min_lines and char limit
+            target_step = max(effective_min_lines, min(nominal_step, char_constrained_step))
         ideal_cut = current_start + target_step
         ideal_cut = min(ideal_cut, total_lines)
 
@@ -288,12 +301,23 @@ def split_chunk_if_oversized(
         chunk.is_cycle_group,
     )
 
+    # Prepare Java AST boundary lines if needed
+    java_boundary_lines = None
+    if chunk.language == "java":
+        from src.utils.ast_parsers import parse_java_with_javalang
+
+        java_chunks = parse_java_with_javalang(chunk.file_path, chunk.code)
+        if java_chunks:
+            # Collect start lines of each method/constructor
+            java_boundary_lines = {start for _, _, _, _, start, _ in java_chunks}
+
     partitions = _partition_lines(
         lines=lines,
         lang=chunk.language,
         max_lines=max_lines,
         max_chars=max_chars,
         min_lines=min_lines,
+        java_boundary_lines=java_boundary_lines,
     )
 
     sub_chunks: List[Chunk] = []
@@ -327,10 +351,29 @@ def split_chunk_if_oversized(
         current_line_cursor = sub_end_line + 1
 
     # ------------------------------------------------------------------------
+    # Restore intra-cycle dependencies when a cycle-group chunk is split
+    # ------------------------------------------------------------------------
+    if chunk.is_cycle_group:
+        # For each pair of sub-chunks, add a dependency if the source routine appears in code.
+        for sc in sub_chunks:
+            for other_sc in sub_chunks:
+                if sc.id == other_sc.id:
+                    continue
+                # Sub-chunk names include a "_partN" suffix, so use the original routine name.
+                other_routine_name = other_sc.name.rsplit("_part", 1)[0]
+                if other_routine_name.lower() in sc.code.lower():
+                    if other_sc.id not in sc.depends_on:
+                        sc.depends_on.append(other_sc.id)
+
+
+    # ------------------------------------------------------------------------
     # Lossless Verification & Line Invariant Check
     # ------------------------------------------------------------------------
+    # Reconstitute code and correctly handle trailing newline.
     reconstituted = "\n".join(sc.code for sc in sub_chunks)
-    is_lossless = (reconstituted == chunk.code)
+    if chunk.code.endswith("\n"):
+        reconstituted += "\n"
+    is_lossless = reconstituted == chunk.code
 
     if not is_lossless:
         logger.warning(

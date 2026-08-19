@@ -383,6 +383,6 @@ def test_detection_caching(tmp_path):
         lang2 = detect_language(str(sample_file), use_ai=True)
         assert lang1 == "java"
         assert lang2 == "java"
-        # Should only invoke LLM once due to in-memory caching
-        assert mock_llm.invoke.call_count == 1
-
+        # Clear heuristic matches are classified locally and never incur an
+        # LLM call; repeated detection is served from the detector cache.
+        assert mock_llm.invoke.call_count == 0

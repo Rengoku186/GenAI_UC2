@@ -1,25 +1,22 @@
 """Dependency Scanner & Static Analysis Tool for Legacy Codebases.
 
-This module provides production-grade AST/regex parsing and dynamic dependency
-graph generation for legacy multi-language codebases (COBOL, Visual Basic, Java).
-It supports AI-powered language detection with resilient fallback to extension-based
-heuristics, robust file handling across varied encodings, and intelligent symbol
-disambiguation for cross-file and intra-file call references.
+This module provides AST/regex parsing and dependency graph generation for
+legacy multi-language codebases (COBOL, Visual Basic, Java). Language
+detection is delegated to `src.parsing.language_detector.LanguageDetector`
+(heuristic-first, LLM fallback only when genuinely ambiguous) rather than
+reimplemented here - see "What changed" below for why that matters at scale.
 """
-
 from __future__ import annotations
 
-import functools
-import hashlib
-import json
-import logging
 import os
+import json
 import re
-from typing import Dict, List, Optional, Pattern, Set, Tuple, Union
+import time
+from typing import Dict, List, Optional, Pattern, Set, Tuple
 
 import networkx as nx
 
-from src.utils.llm import get_llm
+from src.parsing.language_detector import EXTENSION_HINTS, LanguageDetector
 from src.utils.ast_parsers import (
     parse_java_with_tree_sitter,
     parse_java_with_javalang,
@@ -27,72 +24,27 @@ from src.utils.ast_parsers import (
     parse_vb_blocks,
     parse_cobol_structural,
 )
+from src.utils.log_config import get_logger
+from src.utils.llm import get_llm
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-# ============================================================================
-# Supported Languages & Canonical Mappings
-# ============================================================================
+# --- Configuration (env-overridable) ----------------------------------------
 
-SUPPORTED_LANGUAGES: Set[str] = {"cobol", "vb", "java"}
-
-EXTENSION_LANGUAGE_MAP: Dict[str, str] = {
-    # COBOL
-    ".cbl": "cobol",
-    ".cob": "cobol",
-    ".cobol": "cobol",
-    ".cpy": "cobol",
-    ".pco": "cobol",
-    # Visual Basic / VBA / VBScript
-    ".bas": "vb",
-    ".cls": "vb",
-    ".vb": "vb",
-    ".vbs": "vb",
-    ".frm": "vb",
-    ".ctl": "vb",
-    ".vba": "vb",
-    # Java
-    ".java": "java",
-    ".jav": "java",
-}
-
-LANGUAGE_ALIASES: Dict[str, str] = {
-    "cobol": "cobol",
-    "cbl": "cobol",
-    "cob": "cobol",
-    "open-cobol": "cobol",
-    "gnu-cobol": "cobol",
-    "mainframe cobol": "cobol",
-    "micro focus cobol": "cobol",
-    "vb": "vb",
-    "visual basic": "vb",
-    "visualbasic": "vb",
-    "vb6": "vb",
-    "vba": "vb",
-    "vb.net": "vb",
-    "vbscript": "vb",
-    "vbs": "vb",
-    "java": "java",
-    "javac": "java",
-}
+PROGRESS_LOG_EVERY = int(os.getenv("SCANNER_PROGRESS_LOG_EVERY", "50"))
+# Defensive guard for pathologically large legacy extracts - a multi-hundred
+# MB single file is more likely a data dump than source code; skip it with a
+# clear log rather than reading it entirely into memory unbounded.
+MAX_FILE_SIZE_BYTES = int(os.getenv("SCANNER_MAX_FILE_SIZE_BYTES", str(50 * 1024 * 1024)))  # 50MB
 
 # ============================================================================
 # Parsing Regex Patterns
 # ============================================================================
 
 CALL_PATTERNS: Dict[str, Pattern] = {
-    "cobol": re.compile(
-        r"\b(?:CALL|PERFORM)\s+['\"]?([\w-]+)['\"]?",
-        re.IGNORECASE,
-    ),
-    "vb": re.compile(
-        r"\b(?:Call|GoSub)\s+([a-zA-Z_]\w*)",
-        re.IGNORECASE,
-    ),
-    "java": re.compile(
-        r"\b([a-zA-Z_]\w*)\s*\(",
-        re.IGNORECASE,
-    ),
+    "cobol": re.compile(r"\b(?:CALL|PERFORM)\s+['\"]?([\w-]+)['\"]?", re.IGNORECASE),
+    "vb": re.compile(r"\b(?:Call|GoSub)\s+([a-zA-Z_]\w*)", re.IGNORECASE),
+    "java": re.compile(r"\b([a-zA-Z_]\w*)\s*\(", re.IGNORECASE),
 }
 
 DEF_PATTERNS: Dict[str, Pattern] = {
@@ -120,51 +72,57 @@ KEYWORDS_IGNORE: Set[str] = {
     "READ", "WRITE", "REWRITE", "DELETE", "EVALUATE", "WHEN", "END-EVALUATE",
     "END-PERFORM", "END-CALL", "STRING", "UNSTRING", "INSPECT", "SEARCH",
     # VB / VBA keywords
-    "SUB", "FUNCTION", "END", "EXIT", "DIM", "SET", "LET", "GET", "CONST",
+    "SUB", "FUNCTION", "END", "DIM", "LET", "GET", "CONST",
     "PUBLIC", "PRIVATE", "FRIEND", "STATIC", "OPTION", "EXPLICIT", "AS",
-    "INTEGER", "STRING", "BOOLEAN", "DOUBLE", "LONG", "VARIANT", "OBJECT",
-    "FOR", "EACH", "IN", "NEXT", "WHILE", "WEND", "DO", "LOOP", "UNTIL",
-    "SELECT", "CASE", "ON", "ERROR", "GOTO", "RESUME", "MSGBOX", "INPUTBOX",
+    "INTEGER", "BOOLEAN", "DOUBLE", "LONG", "VARIANT", "OBJECT",
+    "FOR", "EACH", "IN", "WHILE", "WEND", "DO", "LOOP", "UNTIL",
+    "SELECT", "CASE", "ON", "ERROR", "RESUME", "MSGBOX", "INPUTBOX",
     "NOT", "AND", "OR", "XOR", "EQV", "IMP", "TRUE", "FALSE", "NOTHING",
     "NULL", "EMPTY", "ME", "NEW", "TYPEOF", "IS", "WITH",
     # Java keywords & common primitives / flow control
-    "PUBLIC", "PRIVATE", "PROTECTED", "STATIC", "FINAL", "VOID", "RETURN",
+    "PROTECTED", "FINAL", "VOID", "RETURN",
     "CLASS", "INTERFACE", "ENUM", "RECORD", "PACKAGE", "IMPORT", "EXTENDS",
-    "IMPLEMENTS", "THROWS", "THROW", "TRY", "CATCH", "FINALLY", "NEW",
-    "THIS", "SUPER", "NULL", "TRUE", "FALSE", "INSTANCEOF", "SYNCHRONIZED",
+    "IMPLEMENTS", "THROWS", "THROW", "TRY", "CATCH", "FINALLY",
+    "THIS", "SUPER", "INSTANCEOF", "SYNCHRONIZED",
     "VOLATILE", "TRANSIENT", "NATIVE", "ABSTRACT", "STRICTFP", "DEFAULT",
-    "IF", "ELSE", "SWITCH", "CASE", "BREAK", "CONTINUE", "WHILE", "FOR", "DO",
+    "SWITCH", "BREAK",
     "SYSTEM", "OUT", "ERR", "PRINTLN", "PRINT", "PRINTF", "EQUALS", "TOSTRING",
     "HASHCODE", "GETCLASS", "CLONE", "NOTIFY", "NOTIFYALL", "WAIT",
 }
 
-# Cache for AI language detection results to avoid redundant model invocations
+# Module-level shared detector instance - has its own content-hash cache, so
+# identical file content across a large scan is never re-classified twice.
+_default_detector = LanguageDetector()
+# Legacy callers historically imported this cache directly.  Keep the public
+# name while the production scanner uses ``LanguageDetector``'s content-hash
+# cache internally.
 _LANGUAGE_DETECTION_CACHE: Dict[str, str] = {}
 
 
 # ============================================================================
-# Safe File IO & Utility Helpers
+# Safe File IO
 # ============================================================================
 
 def _read_file_safe(file_path: str) -> Optional[str]:
-    """Safely read a file with multi-encoding fallback.
-
-    Tries UTF-8 first, followed by Latin-1 and CP1252, falling back to lossy
-    character replacement before failing.
-
-    Args:
-        file_path: Path to the target file.
-
-    Returns:
-        The content of the file as string, or None if the file cannot be read.
-    """
+    """Reads a file with multi-encoding fallback, and a size guard against
+    pathologically large files that are more likely data dumps than source."""
     if not os.path.exists(file_path):
         logger.warning("File not found: %s", file_path)
         return None
-
     if os.path.isdir(file_path):
         logger.warning("Path is a directory, not a file: %s", file_path)
         return None
+
+    try:
+        size = os.path.getsize(file_path)
+        if size > MAX_FILE_SIZE_BYTES:
+            logger.warning(
+                "File exceeds size guard (%d bytes > %d), skipping: %s",
+                size, MAX_FILE_SIZE_BYTES, file_path,
+            )
+            return None
+    except OSError as exc:
+        logger.warning("Could not stat file %s: %s", file_path, exc)
 
     encodings = ["utf-8", "latin-1", "cp1252"]
     for enc in encodings:
@@ -173,181 +131,68 @@ def _read_file_safe(file_path: str) -> Optional[str]:
                 return f.read()
         except (UnicodeDecodeError, LookupError):
             continue
-        except Exception as exc:
+        except OSError as exc:
             logger.error("Failed to read file %s with %s: %s", file_path, enc, exc)
             break
 
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
-    except Exception as exc:
+    except OSError as exc:
         logger.error("Critical error reading file %s: %s", file_path, exc)
         return None
 
 
-def _get_content_sample(content: str, max_lines: int = 80, max_chars: int = 2500) -> str:
-    """Extract a representative snippet from the beginning of a source file."""
-    lines = content.splitlines()[:max_lines]
-    sample = "\n".join(lines)
-    if len(sample) > max_chars:
-        sample = sample[:max_chars]
-    return sample
-
-
-def _canonicalize_language(raw_lang: Optional[str]) -> str:
-    """Map raw language string / model output to canonical language name."""
-    if not raw_lang:
-        return "unknown"
-    normalized = raw_lang.strip().lower().replace("_", " ").replace("-", " ")
-    for alias, canonical in LANGUAGE_ALIASES.items():
-        if alias == normalized or alias in normalized.split():
-            return canonical
-    return "unknown"
-
-
-# ============================================================================
-# Language Detection (AI + Extension Fallback)
-# ============================================================================
-
 def detect_language_by_extension(file_path: str) -> str:
-    """Detect language purely based on file extension.
+    """Return the supported-language hint implied by ``file_path``'s suffix."""
+    return EXTENSION_HINTS.get(os.path.splitext(file_path)[1].lower(), "unknown")
 
-    Args:
-        file_path: The file path to inspect.
 
-    Returns:
-        One of 'cobol', 'vb', 'java', or 'unknown'.
+def detect_language_with_ai(code_content: str, file_path: str = "") -> Optional[str]:
+    """Compatibility helper for callers that explicitly request LLM detection.
+
+    The normal scanner deliberately does not call this per file: it uses
+    deterministic content classification first and only falls back to an LLM
+    when confidence is low.  This helper remains available for integrations
+    that need an explicit model-only classification attempt.
     """
-    ext = os.path.splitext(file_path)[1].lower()
-    return EXTENSION_LANGUAGE_MAP.get(ext, "unknown")
-
-
-def detect_language_with_ai(
-    code_snippet: str,
-    file_path: Optional[str] = None,
-) -> Optional[str]:
-    """Detect programming language of a source snippet using LLM analysis.
-
-    Args:
-        code_snippet: Source code snippet or header lines.
-        file_path: Optional file path or filename to provide additional context.
-
-    Returns:
-        Canonical language string ('cobol', 'vb', 'java') or None if detection fails.
-    """
-    if not code_snippet or not code_snippet.strip():
-        return None
-
-    filename_hint = os.path.basename(file_path) if file_path else "unknown_file"
-
-    system_prompt = (
-        "You are an expert legacy code analyzer. Analyze the given code snippet "
-        "and determine whether it is written in 'cobol', 'vb' (Visual Basic/VBA/VBScript), "
-        "or 'java'. If it is none of these, classify it as 'unknown'.\n\n"
-        "You MUST respond with ONLY a single JSON object matching this schema:\n"
-        '{"language": "cobol" | "vb" | "java" | "unknown", "confidence": float}'
+    prompt = (
+        "Classify this source as exactly one of cobol, vb, java, mixed, or unknown. "
+        "Return only JSON with a language field.\n"
+        f"FILE: {file_path}\nCODE:\n{code_content[:6000]}"
     )
-
-    user_prompt = (
-        f"File name hint: {filename_hint}\n\n"
-        f"CODE SNIPPET:\n```\n{code_snippet}\n```\n\n"
-        "Identify the programming language. Respond strictly with the required JSON object."
-    )
-
     try:
-        llm = get_llm(temperature=0.0)
-        messages = [
-            ("system", system_prompt),
-            ("human", user_prompt),
-        ]
-        response = llm.invoke(messages)
-        raw_text = response.content if hasattr(response, "content") else str(response)
-
-        # Clean markdown code fences if present
-        clean_text = raw_text.strip()
-        clean_text = re.sub(r"^```(?:json)?\s*", "", clean_text, flags=re.IGNORECASE)
-        clean_text = re.sub(r"\s*```$", "", clean_text)
-
-        parsed: Dict[str, Union[str, float]] = {}
-        try:
-            parsed = json.loads(clean_text)
-        except json.JSONDecodeError:
-            json_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group(0))
-
-        detected = parsed.get("language")
-        if detected:
-            canonical = _canonicalize_language(str(detected))
-            if canonical in SUPPORTED_LANGUAGES:
-                return canonical
-
-        # Fallback regex search on raw output if JSON extraction failed
-        for lang_option in ("cobol", "java", "vb"):
-            if re.search(r"\b" + lang_option + r"\b", raw_text, re.IGNORECASE):
-                return lang_option
-
+        response = get_llm(temperature=0.0).invoke([("human", prompt)])
+        raw = response.content if hasattr(response, "content") else str(response)
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        data = json.loads(match.group(0) if match else cleaned)
+    except Exception as exc:  # noqa: BLE001 - explicit AI detection is best effort
+        logger.warning("LLM language detection failed for %s: %s", file_path, exc)
         return None
 
-    except Exception as exc:
-        logger.warning(
-            "AI language detection encountered an error for %s: %s. Falling back to extension.",
-            filename_hint,
-            exc,
-        )
-        return None
+    aliases = {
+        "visual basic": "vb", "visualbasic": "vb", "vba": "vb", "vb6": "vb",
+        "cobol": "cobol", "java": "java", "mixed": "mixed", "unknown": "unknown",
+    }
+    return aliases.get(str(data.get("language", "")).strip().lower())
 
 
-def detect_language(
-    file_path: str,
-    code_content: Optional[str] = None,
-    use_ai: bool = True,
-) -> str:
-    """Detect language of a file using AI with fallback to file extension.
+def detect_language(file_path: str, code_content: Optional[str] = None, use_ai: bool = True) -> str:
+    """Thin delegator to the shared, heuristic-first LanguageDetector.
 
-    Args:
-        file_path: Path to the source file.
-        code_content: Optional in-memory file content. If None, reads from file_path.
-        use_ai: Whether to use LLM-based detection before extension fallback.
-
-    Returns:
-        Detected canonical language ('cobol', 'vb', 'java', or 'unknown').
+    NOTE: this used to be a bespoke implementation that called an LLM on
+    EVERY file when use_ai=True, with no heuristic pre-check. That's a
+    significant cost/latency regression at scale - most files' languages are
+    obvious from content alone. Delegating here restores the two-tier
+    strategy: cheap regex signature scoring first, LLM only when genuinely
+    ambiguous (see language_detector.py for the confidence threshold).
     """
-    # Check cache first
-    cache_key = file_path
-    if code_content is not None:
-        content_hash = hashlib.md5(code_content.encode("utf-8", errors="ignore")).hexdigest()
-        cache_key = f"{file_path}::{content_hash}"
-
-    if cache_key in _LANGUAGE_DETECTION_CACHE:
-        return _LANGUAGE_DETECTION_CACHE[cache_key]
-
-    ext_fallback = detect_language_by_extension(file_path)
-
-    if not use_ai:
-        _LANGUAGE_DETECTION_CACHE[cache_key] = ext_fallback
-        return ext_fallback
-
-    # Prepare code sample for AI
-    content = code_content
-    if content is None and os.path.isfile(file_path):
-        content = _read_file_safe(file_path)
-
-    if content and content.strip():
-        sample = _get_content_sample(content)
-        ai_lang = detect_language_with_ai(sample, file_path=file_path)
-        if ai_lang and ai_lang in SUPPORTED_LANGUAGES:
-            logger.info("AI detected language '%s' for file: %s", ai_lang, file_path)
-            _LANGUAGE_DETECTION_CACHE[cache_key] = ai_lang
-            return ai_lang
-
-    logger.debug(
-        "Using extension fallback '%s' for file: %s",
-        ext_fallback,
-        file_path,
-    )
-    _LANGUAGE_DETECTION_CACHE[cache_key] = ext_fallback
-    return ext_fallback
+    detector = _default_detector if use_ai else LanguageDetector(use_llm_fallback=False)
+    content = code_content if code_content is not None else _read_file_safe(file_path)
+    if content is None:
+        return "unknown"
+    return detector.detect(file_path, content).language
 
 
 # ============================================================================
@@ -362,14 +207,7 @@ def parse_file_chunks(
 ) -> List[Tuple[str, str, str, str, int, int]]:
     """Parse a source file into functional units (paragraphs, subroutines, methods).
 
-    Args:
-        file_path: Path to the target file.
-        code_content: Optional content if already loaded in memory.
-        language: Optional language override. If None, automatically detected.
-        use_ai: Whether to use AI for language detection if language not supplied.
-
-    Returns:
-        List of tuples: (qualified_id, scope, name, code_snippet, start_line, end_line)
+    Returns list of tuples: (qualified_id, scope, name, code_snippet, start_line, end_line)
     """
     content = code_content if code_content is not None else _read_file_safe(file_path)
     if content is None:
@@ -409,7 +247,6 @@ def parse_file_chunks(
                     stripped = line.strip()
                     if stripped.startswith("*") or (len(line) > 6 and line[6] == "*"):
                         continue
-
                     m = re.match(r"^\s*([\w-]+)(?:\s+SECTION)?\.\s*$", line, re.IGNORECASE)
                     if m:
                         pname = m.group(1).upper()
@@ -436,10 +273,8 @@ def parse_file_chunks(
         else:
             attr_match = re.search(r'Attribute\s+VB_Name\s*=\s*"([^"]+)"', content, re.IGNORECASE)
             scope = attr_match.group(1) if attr_match else os.path.splitext(file_basename)[0]
-
             pattern = DEF_PATTERNS["vb"]
             matches = list(pattern.finditer(content))
-
             for idx, m in enumerate(matches):
                 fname = m.group(1)
                 start_l = content[:m.start()].count("\n") + 1
@@ -463,10 +298,8 @@ def parse_file_chunks(
             class_match = re.search(r"(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+)*(?:class|interface|enum|record)\s+(\w+)", content)
             class_name = class_match.group(1) if class_match else os.path.splitext(file_basename)[0]
             scope = f"{pkg_match.group(1)}.{class_name}" if pkg_match else class_name
-
             pattern = DEF_PATTERNS["java"]
             matches = list(pattern.finditer(content))
-
             for idx, m in enumerate(matches):
                 mname = m.group(1)
                 if mname in {"if", "while", "for", "switch", "catch", "synchronized", "try", "finally"}:
@@ -478,7 +311,7 @@ def parse_file_chunks(
                 chunks.append((qid, scope, mname, chunk_code, start_l, end_l))
 
     # ------------------------------------------------------------------------
-    # Fallback: Whole-file MAIN chunk
+    # Fallback: Whole-file MAIN chunk (also covers "mixed"/"unknown" languages)
     # ------------------------------------------------------------------------
     if not chunks:
         scope = os.path.splitext(file_basename)[0]
@@ -493,72 +326,65 @@ def parse_file_chunks(
 # ============================================================================
 
 def scan_project(file_paths: List[str], use_ai: bool = True) -> nx.DiGraph:
-    """Analyze source files and generate a comprehensive directed dependency graph.
+    """Analyze source files and generate a directed dependency graph.
 
     Performs a 2-pass static analysis:
-    - Pass 1: Registers all functional units across files into a multi-indexed
-      symbol registry.
-    - Pass 2: Scans invocation patterns, resolves target qualified IDs with
-      local-first disambiguation, and establishes directed dependency edges.
+    - Pass 1: registers all functional units into a symbol registry.
+    - Pass 2: resolves call references to qualified IDs and builds edges.
 
-    Args:
-        file_paths: List of absolute or relative file paths to scan.
-        use_ai: Whether to use AI for language detection.
-
-    Returns:
-        networkx.DiGraph representing the dependency graph. Each node contains
-        'file_path', 'scope', 'name', 'code', 'language', 'start_line', 'end_line',
-        'depends_on', and 'unresolved' attributes.
+    One bad file can't abort the whole scan - read/parse failures are caught,
+    logged, and skipped, with a summary of failures logged at the end.
     """
     graph = nx.DiGraph()
-
-    # Symbol Registries for disambiguation
     exact_registry: Dict[str, str] = {}
     name_to_qids: Dict[str, List[str]] = {}
     all_chunks_info: List[Tuple[str, str, str, str, str]] = []
+    failed_files: List[Tuple[str, str]] = []
 
-    logger.info("Starting static dependency scan for %d file(s)", len(file_paths))
+    total_files = len(file_paths)
+    scan_start = time.perf_counter()
+    logger.info("Starting static dependency scan for %d file(s)", total_files)
 
     # ------------------------------------------------------------------------
     # PASS 1: Node Registration & Registry Construction
     # ------------------------------------------------------------------------
-    for path in file_paths:
+    for i, path in enumerate(file_paths, start=1):
         if not os.path.exists(path):
             logger.warning("Skipping missing path during scan: %s", path)
+            failed_files.append((path, "path does not exist"))
             continue
 
-        lang = detect_language(path, use_ai=use_ai)
-        parsed_chunks = parse_file_chunks(path, language=lang, use_ai=use_ai)
+        try:
+            content = _read_file_safe(path)
+            if content is None:
+                failed_files.append((path, "unreadable or exceeds size guard"))
+                continue
 
-        for qid, scope, name, code, s_line, e_line in parsed_chunks:
-            graph.add_node(
-                qid,
-                file_path=path,
-                scope=scope,
-                name=name,
-                code=code,
-                language=lang,
-                start_line=s_line,
-                end_line=e_line,
-                depends_on=[],
-                unresolved=[],
-            )
+            lang = detect_language(path, code_content=content, use_ai=use_ai)
+            parsed_chunks = parse_file_chunks(path, code_content=content, language=lang, use_ai=use_ai)
 
-            name_upper = name.upper()
-            scope_name_upper = f"{scope}::{name}".upper()
-            qid_upper = qid.upper()
+            for qid, scope, name, code, s_line, e_line in parsed_chunks:
+                graph.add_node(
+                    qid, file_path=path, scope=scope, name=name, code=code,
+                    language=lang, start_line=s_line, end_line=e_line,
+                    depends_on=[], unresolved=[],
+                )
+                name_upper = name.upper()
+                exact_registry[qid.upper()] = qid
+                exact_registry[f"{scope}::{name}".upper()] = qid
+                exact_registry[f"{path}::{name}".upper()] = qid
+                name_to_qids.setdefault(name_upper, []).append(qid)
+                all_chunks_info.append((qid, path, lang, code, name))
 
-            exact_registry[qid_upper] = qid
-            exact_registry[scope_name_upper] = qid
-            exact_registry[f"{path}::{name}".upper()] = qid
+        except Exception as exc:  # noqa: BLE001 - isolate one bad file
+            logger.error("Failed to scan file, skipping: %s (%s)", path, exc, exc_info=True)
+            failed_files.append((path, str(exc)))
+            continue
 
-            if name_upper not in name_to_qids:
-                name_to_qids[name_upper] = []
-            name_to_qids[name_upper].append(qid)
+        if PROGRESS_LOG_EVERY and i % PROGRESS_LOG_EVERY == 0:
+            logger.info("Scan progress: %d/%d files processed", i, total_files)
 
-            all_chunks_info.append((qid, path, lang, code, name))
-
-    logger.debug("Pass 1 completed: Registered %d chunk nodes", len(graph.nodes))
+    logger.debug("Pass 1 completed: registered %d chunk nodes", len(graph.nodes))
 
     # ------------------------------------------------------------------------
     # PASS 2: Call Analysis & Edge Construction
@@ -567,7 +393,11 @@ def scan_project(file_paths: List[str], use_ai: bool = True) -> nx.DiGraph:
         raw_called_names: List[str] = []
 
         if lang == "java":
-            ast_calls = extract_java_calls_ast(code)
+            try:
+                ast_calls = extract_java_calls_ast(code)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("AST call extraction failed for %s: %s", qid, exc)
+                ast_calls = None
             if ast_calls is not None:
                 raw_called_names = ast_calls
 
@@ -579,53 +409,54 @@ def scan_project(file_paths: List[str], use_ai: bool = True) -> nx.DiGraph:
 
         unresolved_list: List[str] = []
         depends_on_set: Set[str] = set()
+        same_file_key = f"{path}::"
 
         for called_name in raw_called_names:
             called_name = called_name.strip()
             called_upper = called_name.upper()
-
             if not called_name or called_upper in KEYWORDS_IGNORE or called_upper == current_name.upper():
                 continue
 
             target_qid: Optional[str] = None
 
-            # Disambiguation Hierarchy:
-            # 1. Look for same-file match
-            same_file_prefix = f"{path}::{called_name}".upper()
-            for key in exact_registry:
-                if key.endswith(same_file_prefix) or same_file_prefix.endswith(key):
-                    target_qid = exact_registry[key]
-                    break
+            # Disambiguation hierarchy, cheapest/most-specific first - each
+            # of these is now an O(1) dict lookup. The original implementation
+            # scanned the ENTIRE exact_registry with .endswith() string
+            # comparisons for step 1 on every single call reference, which is
+            # O(chunks x registry size) - a serious bottleneck at scale, and
+            # unnecessary since Pass 1 already registers the exact key this
+            # step needs.
+            # 1. Exact same-file match (the key Pass 1 already registers).
+            target_qid = exact_registry.get(f"{same_file_key}{called_name}".upper())
 
-            # 2. Look for exact scope::name match
-            if not target_qid and called_upper in exact_registry:
-                target_qid = exact_registry[called_upper]
+            # 2. Exact scope::name match.
+            if not target_qid:
+                target_qid = exact_registry.get(called_upper)
 
-            # 3. Check name_to_qids registry
+            # 3. Any-file name match, preferring same-file if ambiguous.
             if not target_qid and called_upper in name_to_qids:
                 matching_qids = name_to_qids[called_upper]
-                # Prefer chunk in the same file if multiple exist
-                same_file_qids = [q for q in matching_qids if path in q]
+                same_file_qids = [q for q in matching_qids if q.startswith(same_file_key)]
                 if same_file_qids:
                     target_qid = same_file_qids[0]
                 elif len(matching_qids) == 1:
                     target_qid = matching_qids[0]
 
-            # Edge resolution
             if target_qid and target_qid != qid:
                 graph.add_edge(qid, target_qid)
                 depends_on_set.add(target_qid)
             elif called_upper not in KEYWORDS_IGNORE and len(called_name) > 1:
                 unresolved_list.append(called_name)
 
-        graph.nodes[qid]["depends_on"] = sorted(list(depends_on_set))
-        graph.nodes[qid]["unresolved"] = sorted(list(set(unresolved_list)))
+        graph.nodes[qid]["depends_on"] = sorted(depends_on_set)
+        graph.nodes[qid]["unresolved"] = sorted(set(unresolved_list))
 
+    elapsed_s = round(time.perf_counter() - scan_start, 2)
     logger.info(
-        "Scan complete: %d nodes, %d edges created across %d files",
-        len(graph.nodes),
-        len(graph.edges),
-        len(file_paths),
+        "Scan complete: %d nodes, %d edges, %d file(s) failed, in %ss",
+        graph.number_of_nodes(), graph.number_of_edges(), len(failed_files), elapsed_s,
     )
+    if failed_files:
+        logger.warning("%d file(s) could not be scanned: %s", len(failed_files), [p for p, _ in failed_files])
 
     return graph

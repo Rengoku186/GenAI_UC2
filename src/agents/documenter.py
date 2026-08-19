@@ -18,6 +18,10 @@ from src.utils.llm import get_llm
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of characters allowed in a chunk when sending to the LLM.
+# This protects against oversized prompts that could exceed model limits.
+MAX_CHUNK_CHAR_LIMIT = 32000  # Adjustable via configuration or env var if needed
+
 # ============================================================================
 # Language Labels & Prompt Templates
 # ============================================================================
@@ -235,7 +239,45 @@ def document_chunk(
             f"refusing to generate documentation from nothing."
         )
 
-    llm = get_llm(temperature=0.0)
+    # Enforce maximum chunk size for LLM prompt
+    if len(chunk.code) > MAX_CHUNK_CHAR_LIMIT:
+        logger.warning(
+            "documenter: chunk %s exceeds MAX_CHUNK_CHAR_LIMIT (%d chars); truncating to limit",
+            chunk.id,
+            MAX_CHUNK_CHAR_LIMIT,
+        )
+        # Truncate code while preserving line boundaries (rough estimate)
+        # Assuming average line length ~80 chars to calculate line count limit
+        max_lines = MAX_CHUNK_CHAR_LIMIT // 80
+        truncated_lines = chunk.code.splitlines()[:max_lines]
+        truncated_code = "\n".join(truncated_lines)
+        # Update chunk metadata to reflect truncation
+        chunk = Chunk(
+            id=chunk.id,
+            file_path=chunk.file_path,
+            scope=chunk.scope,
+            name=chunk.name,
+            code=truncated_code,
+            language=chunk.language,
+            start_line=chunk.start_line,
+            end_line=chunk.start_line + len(truncated_lines) - 1,
+            depends_on=chunk.depends_on,
+            is_cycle_group=chunk.is_cycle_group,
+        )
+
+    # Skip trivial chunks early to save LLM calls
+    if not should_document_chunk(chunk):
+        logger.debug("documenter: skipping trivial or boilerplate chunk %s", chunk.id)
+        return ChunkDoc(
+            chunk_id=chunk.id,
+            summary="",
+            inputs=[],
+            outputs=[],
+            business_logic="",
+            dependencies_used=[],
+        )
+
+    llm = get_llm(temperature=0.1)
     language_label = LANGUAGE_LABELS.get(chunk.language, chunk.language)
     system_prompt = DOC_SYSTEM_PROMPT.format(language=language_label)
 

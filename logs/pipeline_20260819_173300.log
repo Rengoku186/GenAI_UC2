@@ -1,0 +1,43 @@
+2026-08-19 17:33:00 [INFO    ] root:114 - ======================================================================
+2026-08-19 17:33:00 [INFO    ] root:115 - Pipeline logging initialised
+2026-08-19 17:33:00 [INFO    ] root:116 -   Console : INFO+
+2026-08-19 17:33:00 [INFO    ] root:117 -   Log file: C:\Users\PrajwalP\Documents\GenAI - UC2\logs\pipeline_20260819_173300.log  (DEBUG+)
+2026-08-19 17:33:00 [INFO    ] root:118 - ======================================================================
+2026-08-19 17:33:00 [INFO    ] __main__:43 - run_phase1 started
+2026-08-19 17:33:01 [INFO    ] src.orchestrator.phase1_graph:79 - Scanner: analysing 1 file(s)
+2026-08-19 17:33:01 [INFO    ] src.tools.dependency_scanner:346 - Starting static dependency scan for 1 file(s)
+2026-08-19 17:33:01 [INFO    ] src.parsing.language_detector:332 - Language detected
+2026-08-19 17:33:01 [DEBUG   ] src.tools.dependency_scanner:387 - Pass 1 completed: registered 4 chunk nodes
+2026-08-19 17:33:01 [INFO    ] src.tools.dependency_scanner:455 - Scan complete: 4 nodes, 3 edges, 0 file(s) failed, in 0.11s
+2026-08-19 17:33:01 [INFO    ] src.tools.cycle_detector:177 - Prepared processing graph: 4 condensed nodes, 4‑node order
+2026-08-19 17:33:01 [INFO    ] src.orchestrator.phase1_graph:115 - Scanner: produced 4 chunk(s) in 0.16s, processing order has 4 entries
+2026-08-19 17:33:20 [INFO    ] src.agents.evaluator:254 - Evaluated chunk 'samples/java/BillingService.java::BillingService::processBilling': score=35.5 (BL=20, Acc=50, Var=30, Clr=60, Issues=5)
+2026-08-19 17:33:20 [INFO    ] src.orchestrator.phase1_graph:250 - Evaluator: chunk 'samples/java/BillingService.java::BillingService::processBilling' scored 35.5 (5 issue(s))
+2026-08-19 17:33:20 [INFO    ] src.orchestrator.phase1_graph:302 - route_after_eval: chunk 'samples/java/BillingService.java::BillingService::processBilling' needs refinement (score=35.5, attempt=1/3)
+2026-08-19 17:33:27 [INFO    ] src.agents.evaluator:254 - Evaluated chunk 'samples/java/BillingService.java::BillingService::processBilling': score=74.5 (BL=50, Acc=90, Var=100, Clr=80, Issues=3)
+2026-08-19 17:33:27 [INFO    ] src.orchestrator.phase1_graph:250 - Evaluator: chunk 'samples/java/BillingService.java::BillingService::processBilling' scored 74.5 (3 issue(s))
+2026-08-19 17:33:27 [INFO    ] src.orchestrator.phase1_graph:302 - route_after_eval: chunk 'samples/java/BillingService.java::BillingService::processBilling' needs refinement (score=74.5, attempt=2/3)
+2026-08-19 17:33:35 [INFO    ] src.agents.evaluator:254 - Evaluated chunk 'samples/java/BillingService.java::BillingService::processBilling': score=51.0 (BL=20, Acc=90, Var=50, Clr=70, Issues=4)
+2026-08-19 17:33:35 [INFO    ] src.orchestrator.phase1_graph:250 - Evaluator: chunk 'samples/java/BillingService.java::BillingService::processBilling' scored 51.0 (4 issue(s))
+2026-08-19 17:33:35 [INFO    ] src.orchestrator.phase1_graph:302 - route_after_eval: chunk 'samples/java/BillingService.java::BillingService::processBilling' needs refinement (score=51.0, attempt=3/3)
+2026-08-19 17:33:46 [INFO    ] src.agents.evaluator:254 - Evaluated chunk 'samples/java/BillingService.java::BillingService::processBilling': score=47.0 (BL=20, Acc=80, Var=50, Clr=60, Issues=4)
+2026-08-19 17:33:46 [INFO    ] src.orchestrator.phase1_graph:250 - Evaluator: chunk 'samples/java/BillingService.java::BillingService::processBilling' scored 47.0 (4 issue(s))
+2026-08-19 17:33:46 [INFO    ] src.orchestrator.phase1_graph:296 - route_after_eval: chunk 'samples/java/BillingService.java::BillingService::processBilling' exhausted 3 retries (score=47.0) -> flagging
+2026-08-19 17:33:46 [WARNING ] src.orchestrator.phase1_graph:350 - flag_for_human: chunk 'samples/java/BillingService.java::BillingService::processBilling' flagged (score=47.0, 4 issue(s))
+2026-08-19 17:33:46 [DEBUG   ] src.orchestrator.phase1_graph:374 - next_chunk_router: advancing to 'samples/java/BillingService.java::BillingService::validateInput'
+2026-08-19 17:33:57 [INFO    ] src.agents.evaluator:254 - Evaluated chunk 'samples/java/BillingService.java::BillingService::validateInput': score=86.5 (BL=95, Acc=100, Var=100, Clr=90, Issues=2)
+2026-08-19 17:33:57 [INFO    ] src.orchestrator.phase1_graph:250 - Evaluator: chunk 'samples/java/BillingService.java::BillingService::validateInput' scored 86.5 (2 issue(s))
+2026-08-19 17:33:57 [DEBUG   ] src.orchestrator.phase1_graph:292 - route_after_eval: chunk 'samples/java/BillingService.java::BillingService::validateInput' PASSED (score=86.5)
+2026-08-19 17:33:57 [DEBUG   ] src.orchestrator.phase1_graph:374 - next_chunk_router: advancing to 'samples/java/BillingService.java::BillingService::calcInterest'
+2026-08-19 17:34:03 [INFO    ] src.agents.evaluator:254 - Evaluated chunk 'samples/java/BillingService.java::BillingService::calcInterest': score=90.0 (BL=100, Acc=100, Var=100, Clr=100, Issues=1)
+2026-08-19 17:34:03 [INFO    ] src.orchestrator.phase1_graph:250 - Evaluator: chunk 'samples/java/BillingService.java::BillingService::calcInterest' scored 90.0 (1 issue(s))
+2026-08-19 17:34:03 [DEBUG   ] src.orchestrator.phase1_graph:292 - route_after_eval: chunk 'samples/java/BillingService.java::BillingService::calcInterest' PASSED (score=90.0)
+2026-08-19 17:34:03 [DEBUG   ] src.orchestrator.phase1_graph:374 - next_chunk_router: advancing to 'samples/java/BillingService.java::BillingService::raiseError'
+2026-08-19 17:34:08 [INFO    ] src.agents.evaluator:254 - Evaluated chunk 'samples/java/BillingService.java::BillingService::raiseError': score=75.2 (BL=50, Acc=90, Var=100, Clr=85, Issues=2)
+2026-08-19 17:34:08 [INFO    ] src.orchestrator.phase1_graph:250 - Evaluator: chunk 'samples/java/BillingService.java::BillingService::raiseError' scored 75.2 (2 issue(s))
+2026-08-19 17:34:08 [INFO    ] src.orchestrator.phase1_graph:302 - route_after_eval: chunk 'samples/java/BillingService.java::BillingService::raiseError' needs refinement (score=75.2, attempt=1/3)
+2026-08-19 17:34:12 [INFO    ] src.agents.evaluator:254 - Evaluated chunk 'samples/java/BillingService.java::BillingService::raiseError': score=96.5 (BL=95, Acc=100, Var=100, Clr=90, Issues=1)
+2026-08-19 17:34:12 [INFO    ] src.orchestrator.phase1_graph:250 - Evaluator: chunk 'samples/java/BillingService.java::BillingService::raiseError' scored 96.5 (1 issue(s))
+2026-08-19 17:34:12 [DEBUG   ] src.orchestrator.phase1_graph:292 - route_after_eval: chunk 'samples/java/BillingService.java::BillingService::raiseError' PASSED (score=96.5)
+2026-08-19 17:34:12 [INFO    ] src.orchestrator.phase1_graph:376 - next_chunk_router: all chunks processed
+2026-08-19 17:34:12 [INFO    ] src.agents.documenter:540 - Exported 1 flagged review item(s) to docs\flagged_items.json

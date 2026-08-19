@@ -1,0 +1,26 @@
+[
+  {
+    "chunk_id": "samples/java/BillingService.java::BillingService::main",
+    "overall_score": 75.2,
+    "issues": [
+      "[MISSING_FORMULA] The documentation does not explicitly state that no mathematical formulas or calculations are present in the code, which is a required verification step.",
+      "[MISSING_CONDITION] The documentation does not explicitly confirm the absence of conditional logic or decision thresholds in the code, which is necessary for completeness.",
+      "[UNCLEAR_LOGIC] The phrase 'The behavior of processBilling is abstracted and not visible in this code' could be clarified to explicitly state that no business logic can be evaluated for processBilling due to its absence in the provided code."
+    ],
+    "reason": "Max refinement retries reached"
+  },
+  {
+    "chunk_id": "samples/java/BillingService.java::BillingService::processBilling",
+    "overall_score": 41.2,
+    "issues": [
+      "[VARIABLE_MISMATCH] Input variable 'validateInput() return value' was not found in the source code tokens.",
+      "[VARIABLE_MISMATCH] Input variable 'calcInterest() return value' was not found in the source code tokens.",
+      "[VARIABLE_MISMATCH] Output variable 'System.out log messages' was not found in the source code tokens.",
+      "[MISSING_FORMULA] The documentation does not specify the formula or logic used in the calcInterest() method, which is critical for understanding the business logic.",
+      "[MISSING_CONDITION] The exact conditions or criteria for input validation in validateInput() are not documented, leaving a gap in the decision-making logic.",
+      "[MISSING_ERROR_PATH] The documentation does not explicitly state what happens if validateInput() fails beyond logging a message and exiting, such as whether any cleanup or rollback occurs.",
+      "[UNCLEAR_LOGIC] The documentation vaguely states that calcInterest() calculates interest without providing any detail on how this is done, making it less actionable for a business analyst."
+    ],
+    "reason": "Max refinement retries reached"
+  }
+]

@@ -276,6 +276,18 @@ def route_after_eval(state: PipelineState) -> str:
     refines = state.get("refine_count", {})
     refine_cnt = refines.get(cid, 0)
 
+    # A transport/provider failure cannot be improved by resubmitting the
+    # same prompt. Flag it immediately so each affected chunk makes one
+    # failed request rather than exhausting the full refinement budget.
+    failed_doc = state.get("docs", {}).get(cid, {})
+    failed_logic = str(failed_doc.get("business_logic", ""))
+    if "[DOCUMENTATION FAILED" in failed_logic:
+        logger.warning(
+            "route_after_eval: documentation provider failed for chunk '%s' -> flagging",
+            cid,
+        )
+        return "flag_for_human"
+
     if score >= PASS_THRESHOLD:
         logger.debug("route_after_eval: chunk '%s' PASSED (score=%.1f)", cid, score)
         return "next_chunk_router"

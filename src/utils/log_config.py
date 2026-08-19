@@ -27,6 +27,16 @@ from datetime import datetime
 # Public API
 # ---------------------------------------------------------------------------
 
+def get_logger(name: str) -> logging.Logger:
+    """Return a module logger without configuring global logging.
+
+    Library modules use this helper at import time. Application entry points
+    remain responsible for calling :func:`setup_logging` once, which avoids
+    adding duplicate handlers during tests, worker startup, or imports.
+    """
+    return logging.getLogger(name)
+
+
 def setup_logging(
     log_dir: str = "logs",
     console_level: int = logging.INFO,
