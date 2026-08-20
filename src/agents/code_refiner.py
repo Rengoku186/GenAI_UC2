@@ -39,7 +39,7 @@ class CodeRefinerAgent(BaseAgent):
             if java_code and "package com.modern.services;" not in java_code:
                 java_code = "package com.modern.services;\n\n" + java_code
             return CodeRefinementSchema(
-                module_name=current_code.module_name or chunk.name.lower(),
+                module_name=chunk.name.lower(),
                 target_java_code=java_code,
                 java_class_name=current_code.java_class_name
             )
@@ -70,9 +70,6 @@ class CodeRefinerAgent(BaseAgent):
 
         return GeneratedCode(
             chunk_id=chunk.chunk_id,
-            target_code="",          # Java-only mode
-            module_name=res.module_name,
-            imports=[],
             target_java_code=res.target_java_code or current_code.target_java_code,
             java_class_name=res.java_class_name or current_code.java_class_name,
             java_package=current_code.java_package,

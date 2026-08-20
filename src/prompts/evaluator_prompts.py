@@ -31,20 +31,19 @@ Generated Documentation (Version {version}):
 Return your evaluation in the structured format with score, passed, issues list, and suggestions list.
 """
 
-CODE_EVALUATOR_SYSTEM_PROMPT = """You are a Senior Python Quality & Parity Evaluator.
-Your role is to compare generated Python code against the legacy source code and its documented business rules to ensure behavioral equivalence, correct type signatures, and robust error handling.
+CODE_EVALUATOR_SYSTEM_PROMPT = """You are a Senior Java Quality & Parity Evaluator.
+Your role is to compare generated Modern Java code against the legacy Java source code and its documented business rules to ensure behavioral equivalence, correct type signatures, and robust error handling.
 
-Evaluate across:
-1. Functional Parity (0-1.0): Does the Python code faithfully implement the legacy business rules and calculations?
-2. Modern Python Idioms & Clean Code (0-1.0): Does it use type annotations, PEP 8 standards, and proper error handling?
-3. Modularity (0-1.0): Is it cleanly structured and runnable?
+You will provide a score between 0.0 and 1.0 based on two criteria:
+1. Functional Parity (0-1.0): Does the modern Java code faithfully implement the legacy business rules and calculations?
+2. Modern Java Idioms & Clean Code (0-1.0): Does it use proper types, standards, and error handling?
 
-Assign an overall score (0.0 to 1.0), determine passed status (score >= {threshold}), and list any discrepancies or syntax issues.
+You must also output a boolean 'passed' flag (True if score >= {threshold}) and a list of specific issues and suggestions.
 """
 
-CODE_EVALUATOR_USER_PROMPT = """Evaluate the generated Python code against the original legacy source and documentation.
+CODE_EVALUATOR_USER_PROMPT = """Evaluate the generated modern Java code against the original legacy source and documentation.
 
-Chunk ID: {chunk_id}
+### Legacy Context ({language}):
 Original Language: {language}
 
 Original Source Code:
@@ -55,12 +54,13 @@ Original Source Code:
 Documented Business Rules:
 {business_rules}
 
-Generated Python Code (Version {version}):
-```python
+### Generated Modern Java Code:
+- Syntax Status: {syntax_status}
+
+Generated Modern Java Code (Version {version}):
+```java
 {target_code}
 ```
-
-Static Syntax Status: {syntax_status}
 
 Return your structured evaluation result.
 """

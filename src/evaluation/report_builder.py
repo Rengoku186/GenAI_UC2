@@ -166,7 +166,7 @@ Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}
 
 ## 3. Evaluation & Quality Gate
 - 13-Node LangGraph Multi-Agent Architecture with self-correcting feedback loops.
-- Java-only modernization mode: all legacy sources (COBOL, VB, Java) converted to modern Java 17+.
+- Java-only modernization mode: all legacy sources (Java) converted to modern Java 17+.
 """
         arch_doc.write_text(arch_content, encoding="utf-8")
         exported_files["docs"].append(str(arch_doc))

@@ -54,17 +54,34 @@ class BaseAgent:
 
     def _init_llm(self):
         """Initializes the underlying LangChain chat model if API keys exist."""
-        if self.provider == "openai" and os.getenv("OPENAI_API_KEY"):
-            try:
-                from langchain_openai import ChatOpenAI
-                self._llm = ChatOpenAI(
-                    model=self.model_name,
-                    temperature=self.temperature,
-                    api_key=os.getenv("OPENAI_API_KEY")
-                )
-                self.logger.info("ChatOpenAI client initialized for %s", self.agent_name)
-            except Exception as e:
-                self.logger.warning("Failed to initialize ChatOpenAI: %s. Falling back to mock.", e)
+        if self.provider == "openai":
+            if os.getenv("AZURE_OPENAI_KEY_GPT4o"):
+                try:
+                    from langchain_openai import AzureChatOpenAI
+                    self._llm = AzureChatOpenAI(
+                        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", self.model_name),
+                        api_version="2025-01-01-preview",
+                        temperature=self.temperature,
+                        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                        api_key=os.getenv("AZURE_OPENAI_KEY_GPT4o")
+                    )
+                    self.logger.info("AzureChatOpenAI client initialized for %s", self.agent_name)
+                except Exception as e:
+                    self.logger.warning("Failed to initialize AzureChatOpenAI: %s. Falling back to mock.", e)
+                    self._llm = None
+            elif os.getenv("OPENAI_API_KEY"):
+                try:
+                    from langchain_openai import ChatOpenAI
+                    self._llm = ChatOpenAI(
+                        model=self.model_name,
+                        temperature=self.temperature,
+                        api_key=os.getenv("OPENAI_API_KEY")
+                    )
+                    self.logger.info("ChatOpenAI client initialized for %s", self.agent_name)
+                except Exception as e:
+                    self.logger.warning("Failed to initialize ChatOpenAI: %s. Falling back to mock.", e)
+                    self._llm = None
+            else:
                 self._llm = None
         elif self.provider == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
             try:

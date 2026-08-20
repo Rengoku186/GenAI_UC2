@@ -10,27 +10,18 @@ class ASTTools:
     """Utility methods for source file inspection, language detection, and token statistics."""
 
     @staticmethod
-    def detect_language(file_path: str | Path) -> Literal["cobol", "vb", "java", "unknown"]:
-        """Infers legacy language from file extension or content keywords."""
+    def detect_language(file_path: str | Path) -> Literal["java", "unknown"]:
+        """Naive heuristic to guess language from file extension or content snippet."""
         path = Path(file_path)
         ext = path.suffix.lower()
 
-        if ext in [".cbl", ".cob", ".cobol", ".cpy"]:
-            return "cobol"
-        elif ext in [".vb", ".vbs", ".bas", ".cls", ".frm"]:
-            return "vb"
-        elif ext in [".java", ".jav"]:
+        if ext == ".java":
             return "java"
 
-        # Content fallback
         if path.exists():
             try:
-                sample = path.read_text(encoding="utf-8", errors="ignore")[:2000].upper()
-                if "IDENTIFICATION DIVISION" in sample or "PROCEDURE DIVISION" in sample:
-                    return "cobol"
-                elif "NAMESPACE" in sample or "PUBLIC CLASS" in sample and "END CLASS" in sample:
-                    return "vb"
-                elif "PACKAGE " in sample or ("PUBLIC CLASS " in sample and "{" in sample):
+                content = path.read_text(encoding="utf-8")[:1000].lower()
+                if "class " in content and "public " in content:
                     return "java"
             except Exception:
                 pass

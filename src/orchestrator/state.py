@@ -10,7 +10,7 @@ class ChunkMetadata(BaseModel):
     """Metadata describing a discrete logical chunk of legacy source code."""
     chunk_id: str = Field(description="Unique identifier for the chunk, e.g. 'LOANCALC_INIT'")
     source_file: str = Field(description="Path or filename of the original source file")
-    language: str = Field(description="Legacy programming language (cobol, vb, java)")
+    language: str = Field(description="Legacy programming language (java)")
     line_start: int = Field(description="Starting line number in source file (1-indexed)")
     line_end: int = Field(description="Ending line number in source file (inclusive)")
     name: str = Field(description="Symbol name (paragraph, function, class, or method name)")
@@ -40,11 +40,8 @@ class DocSection(BaseModel):
 
 
 class GeneratedCode(BaseModel):
-    """Generated target Python and Java modern service code for a chunk."""
+    """Generated Modern Java 17+ service code for a chunk."""
     chunk_id: str = Field(description="Target chunk ID")
-    target_code: str = Field(description="Modern, idiomatic, fully runnable Python code")
-    module_name: str = Field(default="", description="Suggested Python module filename or class name")
-    imports: list[str] = Field(default_factory=list, description="Required Python import statements")
     target_java_code: str = Field(default="", description="Modern, idiomatic Java 17+/21+ service implementation")
     java_class_name: str = Field(default="", description="Java class/record name")
     java_package: str = Field(default="com.modern.services", description="Java target package name")
@@ -52,14 +49,13 @@ class GeneratedCode(BaseModel):
 
 
 class TestResult(BaseModel):
-    """Unit test code and execution outcomes for a chunk (pytest and JUnit 5)."""
+    """JUnit 5 test code and execution outcomes for a chunk."""
     chunk_id: str = Field(description="Target chunk ID")
-    test_code: str = Field(description="Pytest test suite code targeting the generated Python code")
     java_test_code: str = Field(default="", description="JUnit 5 test suite code targeting the generated Java service")
     pass_count: int = Field(default=0, description="Number of passing test cases")
     fail_count: int = Field(default=0, description="Number of failing test cases")
     coverage_pct: float = Field(default=0.0, description="Code line coverage percentage (0.0 - 100.0)")
-    execution_output: str = Field(default="", description="Captured stdout/stderr or traceback from pytest")
+    execution_output: str = Field(default="", description="Captured stdout/stderr or test runner output")
     all_passed: bool = Field(default=False, description="True if pass_count > 0 and fail_count == 0")
 
 

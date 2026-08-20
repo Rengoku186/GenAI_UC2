@@ -10,7 +10,6 @@ from src.orchestrator.state import PipelineState
 from src.orchestrator.router import (
     route_after_chunk_eval,
     route_after_dep_eval,
-    route_after_doc_eval,
     route_after_code_eval,
     route_after_test_exec
 )
@@ -22,7 +21,6 @@ from src.agents.chunk_evaluator import ChunkEvaluatorAgent
 from src.agents.dependency_evaluator import DependencyEvaluatorAgent
 from src.agents.documenter import DocumenterAgent
 from src.agents.doc_evaluator import DocEvaluatorAgent
-from src.agents.doc_refiner import DocRefinerAgent
 from src.agents.code_generator import CodeGeneratorAgent
 from src.agents.code_evaluator import CodeEvaluatorAgent
 from src.agents.code_refiner import CodeRefinerAgent
@@ -48,7 +46,6 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
     dep_eval = DependencyEvaluatorAgent(config_dir=config_dir)
     documenter = DocumenterAgent(config_dir=config_dir)
     doc_eval = DocEvaluatorAgent(config_dir=config_dir)
-    doc_refiner = DocRefinerAgent(config_dir=config_dir)
     code_gen = CodeGeneratorAgent(config_dir=config_dir)
     code_eval = CodeEvaluatorAgent(config_dir=config_dir)
     code_refiner = CodeRefinerAgent(config_dir=config_dir)
@@ -81,12 +78,8 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
         logger.info("[Pipeline] Executing Node: DocEvaluator")
         return doc_eval.execute(state)
 
-    def node_doc_refiner(state: PipelineState) -> dict:
-        logger.info("[Pipeline] Executing Node: DocRefiner")
-        return doc_refiner.execute(state)
-
     def node_code_generator(state: PipelineState) -> dict:
-        logger.info("[Pipeline] Executing Node: CodeGenerator (Python & Java)")
+        logger.info("[Pipeline] Executing Node: CodeGenerator (Java)")
         return code_gen.execute(state)
 
     def node_code_evaluator(state: PipelineState) -> dict:
@@ -124,7 +117,6 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
     workflow.add_node("dependency_evaluator", node_dependency_evaluator)
     workflow.add_node("documenter", node_documenter)
     workflow.add_node("doc_evaluator", node_doc_evaluator)
-    workflow.add_node("doc_refiner", node_doc_refiner)
     workflow.add_node("code_generator", node_code_generator)
     workflow.add_node("code_evaluator", node_code_evaluator)
     workflow.add_node("code_refiner", node_code_refiner)
@@ -159,17 +151,7 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
     )
 
     workflow.add_edge("documenter", "doc_evaluator")
-
-    # Conditional Refinement Loop for Documentation
-    workflow.add_conditional_edges(
-        "doc_evaluator",
-        route_after_doc_eval,
-        {
-            "doc_refiner": "doc_refiner",
-            "code_generator": "code_generator"
-        }
-    )
-    workflow.add_edge("doc_refiner", "doc_evaluator")
+    workflow.add_edge("doc_evaluator", "code_generator")
 
     # Code Gen -> Code Eval Loop
     workflow.add_edge("code_generator", "code_evaluator")
@@ -264,7 +246,7 @@ def main():
         sample_dir = Path("data/legacy_source")
         source_paths = [
             str(p) for p in sample_dir.glob("*.*")
-            if p.suffix.lower() in [".cbl", ".vb", ".java"]
+            if p.suffix.lower() == ".java"
         ]
 
     console.print(f"[bold]Target Source Files:[/bold] {source_paths}\n")

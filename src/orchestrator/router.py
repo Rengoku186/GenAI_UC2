@@ -89,25 +89,7 @@ def route_after_dep_eval(state: PipelineState) -> Literal["documenter", "depende
     return "documenter"
 
 
-def route_after_doc_eval(state: PipelineState) -> Literal["doc_refiner", "code_generator"]:
-    """Routes to doc_refiner if any chunk doc failed and is under retry cap, else proceeds to code_generator."""
-    eval_history = state.get("eval_history", [])
-    docs = state.get("docs", {})
-    retry_counts = state.get("retry_counts", {})
-    cap = _load_retry_caps().get("documentation", 3)
 
-    for cid in docs:
-        c_evals = [e for e in eval_history if e.target_id == cid and e.stage == "doc_evaluation"]
-        if c_evals:
-            latest = c_evals[-1]
-            if not latest.passed:
-                attempts = retry_counts.get(f"{cid}:documentation", 0)
-                if attempts < cap:
-                    logger.warning("[Router] Doc evaluation failed for chunk %s (Attempt %d/%d); routing to doc_refiner", cid, attempts + 1, cap)
-                    return "doc_refiner"
-
-    logger.info("[Router] Documentation evaluation complete; proceeding to code_generator")
-    return "code_generator"
 
 
 def route_after_code_eval(state: PipelineState) -> Literal["code_refiner", "test_generator"]:

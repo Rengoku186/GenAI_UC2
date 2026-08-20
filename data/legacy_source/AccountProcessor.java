@@ -149,10 +149,7 @@ public class AccountProcessor {
     /**
      * Process a cash deposit into account.
      */
-    public TransactionRecord processDeposit(
-            BankAccount account,
-            String txId,
-            BigDecimal amount) {
+    public TransactionRecord processDeposit(BankAccount account, String txId, BigDecimal amount) {
 
         if (amount == null ||
                 amount.compareTo(BigDecimal.ZERO) <= 0) {
@@ -196,10 +193,7 @@ public class AccountProcessor {
     /**
      * Process withdrawal with overdraft and daily limit checks.
      */
-    public TransactionRecord processWithdrawal(
-            BankAccount account,
-            String txId,
-            BigDecimal amount) {
+    public TransactionRecord processWithdrawal(BankAccount account, String txId, BigDecimal amount) {
 
         if (amount == null ||
                 amount.compareTo(BigDecimal.ZERO) <= 0) {

@@ -32,100 +32,102 @@ class DocumenterAgent(BaseAgent):
         dep_ctx = "\n".join([f"- {e.edge_type}: {e.source_chunk} -> {e.target_chunk} ({e.description})" for e in chunk_edges]) or "None"
 
         def mock_doc() -> DocSectionSchema:
-            if chunk.language == "cobol":
-                if "TIER" in chunk.name or "2100" in chunk.name:
-                    return DocSectionSchema(
-                        purpose="Determines loan tier surcharge percentage based on applicant credit tier (A, B, C, or OTHER).",
-                        inputs=["IN-CREDIT-TIER (char)", "IN-PRINCIPAL-AMT (numeric)"],
-                        outputs=["WS-TIER-SURCHARGE (numeric)"],
-                        business_rules=[
-                            "Tier A: 0% surcharge ($0.00)",
-                            "Tier B: 0.5% of principal amount (principal * 0.005)",
-                            "Tier C: 1.5% of principal amount (principal * 0.015)",
-                            "Other Tiers: 3.0% of principal amount (principal * 0.030)"
-                        ],
-                        control_flow="Evaluate IN-CREDIT-TIER and compute WS-TIER-SURCHARGE based on tiered rates."
-                    )
-                elif "INTEREST" in chunk.name or "2200" in chunk.name:
-                    return DocSectionSchema(
-                        purpose="Calculates monthly interest rate and single-period interest charge from annual rate.",
-                        inputs=["IN-INTEREST-RATE (annual %)", "IN-PRINCIPAL-AMT (numeric)"],
-                        outputs=["WS-MONTHLY-RATE (decimal)", "WS-MONTHLY-INTEREST (decimal)", "WS-TOTAL-INTEREST (accumulated)"],
-                        business_rules=[
-                            "Monthly interest rate = (Annual Interest Rate / 100.0) / 12.0",
-                            "Monthly interest charge = Principal * Monthly Interest Rate",
-                            "Total interest = Accumulated prior interest + Monthly interest charge"
-                        ],
-                        control_flow="Convert annual percentage to monthly factor, compute charge, and add to running total."
-                    )
-                elif "AMORTIZATION" in chunk.name or "2300" in chunk.name:
-                    return DocSectionSchema(
-                        purpose="Computes standard fixed-rate monthly amortization payment, principal deduction, and final balance.",
-                        inputs=["IN-PRINCIPAL-AMT", "IN-TERM-MONTHS", "WS-MONTHLY-RATE", "WS-MONTHLY-INTEREST", "WS-TIER-SURCHARGE"],
-                        outputs=["WS-MONTHLY-PAYMENT", "WS-PRINCIPAL-PAID", "WS-FINAL-BALANCE"],
-                        business_rules=[
-                            "Monthly Payment = (P * r) / (1 - (1 + r)^(-n)) when r > 0",
-                            "Monthly Payment = P / n when r = 0 (zero interest loan)",
-                            "Principal Paid = Monthly Payment - Monthly Interest",
-                            "Final Balance = Principal - Principal Paid + Tier Surcharge"
-                        ],
-                        control_flow="Check if monthly rate is positive; calculate annuity payment; deduct interest; compute final balance."
-                    )
-            elif chunk.language == "vb":
-                if "ValidateCustomer" in chunk.name:
-                    return DocSectionSchema(
-                        purpose="Validates customer credit profile, computes DTI ratio, and determines max loan eligibility.",
-                        inputs=["CustomerRecord (Age, CreditScore, AnnualIncome, TotalDebt, Email, IsActive)"],
-                        outputs=["ValidationResult (IsValid, RiskCategory, MaxLoanEligibility, DebtToIncomeRatio, ErrorMessages)"],
-                        business_rules=[
-                            "Age constraint: 18 <= Age <= 120",
-                            "Credit score constraint: 300 <= CreditScore <= 850",
-                            "Email regex format: ^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
-                            "DTI calculation: (TotalDebt / AnnualIncome) * 100",
-                            "Account must be active (IsActive == True)",
-                            "Risk Tier Prime: Score >= 750 and DTI <= 35% -> Max Loan = Income * 4.5",
-                            "Risk Tier Standard: Score >= 650 and DTI <= 45% -> Max Loan = Income * 3.0",
-                            "Risk Tier Subprime: Score >= 580 and DTI <= 50% -> Max Loan = Income * 1.5",
-                            "Other / Ineligible: Max Loan = 0.0"
-                        ],
-                        control_flow="Validate age, score, email, DTI; check active status; if no errors determine risk tier and loan limit; else reject."
-                    )
-            elif chunk.language == "java":
-                if "processDeposit" in chunk.name:
-                    return DocSectionSchema(
-                        purpose="Processes deposit transaction into bank account, updating balance and appending audit trail.",
-                        inputs=["BankAccount", "txId (String)", "amount (BigDecimal)"],
-                        outputs=["TransactionRecord (isApproved, resultingBalance, statusMessage)"],
-                        business_rules=[
-                            "Deposit amount must be strictly greater than 0.00",
-                            "New balance = Current balance + Deposit amount",
-                            "Scale to 2 decimal places with HALF_UP rounding"
-                        ],
-                        control_flow="Verify positive amount; add to account balance; log approved transaction record."
-                    )
-                elif "processWithdrawal" in chunk.name:
-                    return DocSectionSchema(
-                        purpose="Processes withdrawal transaction with daily withdrawal limits, overdraft coverage, and low-balance fees.",
-                        inputs=["BankAccount", "txId (String)", "amount (BigDecimal)"],
-                        outputs=["TransactionRecord (isApproved, resultingBalance, statusMessage)"],
-                        business_rules=[
-                            "Withdrawal amount must be strictly greater than 0.00",
-                            "Daily withdrawal accumulation limit = $2500.00 max",
-                            "Standard withdrawal: allowed if Current Balance >= amount",
-                            "Low balance maintenance penalty: if Checking and resulting balance < $100.00, apply $12.00 penalty",
-                            "Overdraft: if Current Balance < amount and overdraftProtection is true, allow withdrawal and apply $35.00 fee",
-                            "If overdraftProtection is false, reject transaction with Insufficient Funds"
-                        ],
-                        control_flow="Check amount > 0; check daily limit; if sufficient funds subtract amount and check checking penalty; else if overdraft enabled subtract amount and $35 fee; else reject."
-                    )
+            # ── Java: infer documentation from actual raw_code & signature ────
+            import re as _re
+            raw = chunk.raw_code.strip()
+            sig = chunk.signature or ""
+            name = chunk.name
+
+            # Extract return type and parameters from signature or raw code
+            sig_match = _re.search(r'(public|private|protected|static)\s+([\w<>\[\]]+)\s+\w+\s*\(([^)]*)\)', sig or raw)
+            return_type = sig_match.group(2) if sig_match else "void"
+            params_raw  = sig_match.group(3) if sig_match else ""
+
+            # Parse parameter list: "Type name, Type2 name2" → ["name (Type)", ...]
+            inputs: list[str] = []
+            for p in params_raw.split(","):
+                p = p.strip()
+                parts = p.rsplit(" ", 1)
+                if len(parts) == 2:
+                    inputs.append(f"{parts[1]} ({parts[0]})")
+                elif p:
+                    inputs.append(p)
+
+            # Detect getter/setter/adder patterns
+            if name.startswith("get"):
+                field = name[3:]
+                purpose = f"Returns the value of `{field[0].lower() + field[1:]}` from the enclosing object."
+                outputs = [f"{field[0].lower() + field[1:]} ({return_type})"]
+                rules: list[str] = []
+                flow = f"Return the value of the `{field[0].lower() + field[1:]}` field."
+            elif name.startswith("set"):
+                field = name[3:]
+                purpose = f"Sets the value of `{field[0].lower() + field[1:]}` on the enclosing object."
+                outputs = ["void (mutates state)"]
+                rules = [f"Assigns the provided value directly to the `{field[0].lower() + field[1:]}` field."]
+                flow = f"Assign the provided argument to the `{field[0].lower() + field[1:]}` field."
+            elif name.startswith("is") or name.startswith("has"):
+                field = name[2:]
+                purpose = f"Returns the boolean state of `{field[0].lower() + field[1:]}` for this object."
+                outputs = [f"{field[0].lower() + field[1:]} (boolean)"]
+                rules = []
+                flow = f"Return the boolean flag `{field[0].lower() + field[1:]}`."
+            elif name.startswith("add") or name.startswith("record"):
+                purpose = f"Accumulates or appends a value related to `{name}` on the enclosing object."
+                outputs = ["void (mutates internal collection or counter)"]
+                rules = [f"Mutates the internal state by adding the provided value to the existing accumulator."]
+                flow = f"Add the provided argument to the internal field; no return value."
+            elif name == "main":
+                purpose = "Entry point for standalone execution and demonstration of the service."
+                outputs = ["void (console output)"]
+                rules = ["Demonstrates the service by running representative scenarios."]
+                flow = "Instantiate service, run sample scenarios, print results to stdout."
+            elif name == "HEADER" or "import" in raw.lower() or "package" in raw.lower():
+                purpose = "Package declaration, import statements, and class-level constants for the service."
+                outputs = []
+                rules = []
+                flow = "Declares the package, imports required Java libraries, and defines class-level constants."
+            elif "processDeposit" in name:
+                purpose = "Processes deposit transaction into bank account, updating balance and appending audit trail."
+                outputs = ["TransactionRecord"]
+                inputs = ["BankAccount account", "String txId", "BigDecimal amount"]
+                rules = [
+                    "Deposit amount must be strictly greater than 0.00",
+                    "New balance = Current balance + Deposit amount",
+                    "Scale to 2 decimal places with HALF_UP rounding"
+                ]
+                flow = "Verify positive amount; add to account balance; log approved transaction record."
+            elif "processWithdrawal" in name:
+                purpose = "Processes withdrawal transaction with daily withdrawal limits, overdraft coverage, and low-balance fees."
+                outputs = ["TransactionRecord"]
+                inputs = ["BankAccount account", "String txId", "BigDecimal amount"]
+                rules = [
+                    "Withdrawal amount must be strictly greater than 0.00",
+                    "Daily withdrawal accumulation limit = $2500.00 max",
+                    "Standard withdrawal: allowed if Current Balance >= amount",
+                    "Low balance maintenance penalty: if Checking and resulting balance < $100.00, apply $12.00 penalty",
+                    "Overdraft: if Current Balance < amount and overdraftProtection is true, allow withdrawal and apply $35.00 fee",
+                    "If overdraftProtection is false, reject transaction with Insufficient Funds"
+                ]
+                flow = "Check amount > 0; check daily limit; if sufficient funds subtract amount and check checking penalty; else if overdraft enabled subtract amount and $35 fee; else reject."
+            else:
+                purpose = f"Executes the `{name}` operation as defined in the legacy source."
+                outputs = [f"{return_type}"] if return_type and return_type != "void" else ["void"]
+                rules = [
+                    f"Preserves the exact legacy behavioral semantics of `{name}`.",
+                    "Any conditional logic, limits, or boundary conditions present in the original method must be exactly mapped.",
+                    "Side effects and downstream state mutations must mirror the original Java implementation."
+                ]
+                flow = f"1. Begin execution of `{name}`.\n2. Evaluate any guard clauses.\n3. Execute state changes or calculations.\n4. Return the resulting state or output."
 
             return DocSectionSchema(
-                purpose=f"Executes legacy logic for {chunk.name}.",
-                inputs=["Context variables / parameters"],
-                outputs=["Updated state or return value"],
-                business_rules=[f"Maintains functional behavior of {chunk.name}"],
-                control_flow=f"Sequential execution of statements in {chunk.name}."
+                purpose=purpose,
+                inputs=inputs if inputs else ["No parameters"],
+                outputs=outputs if outputs else ["void"],
+                business_rules=rules,
+                control_flow=flow,
             )
+
 
         user_prompt = DOCUMENTER_USER_PROMPT.format(
             language=chunk.language,

@@ -29,312 +29,9 @@ class CodeGeneratorAgent(BaseAgent):
         self.logger.debug("Generating Java 17+ code for chunk %s (%s)", chunk.chunk_id, chunk.language)
 
         def mock_codegen() -> CodeGenSchema:
-            clean_name = chunk.name.upper()
-            if chunk.language == "cobol":
-                if "TIER" in clean_name or "2100" in clean_name:
-                    java_code = '''package com.modern.services;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-
-/**
- * Loan tier surcharge calculator — modernized from COBOL CALCULATE-TIER-SURCHARGE paragraph.
- */
-public class LoanTierSurchargeService {
-
-    /**
-     * Calculates the surcharge based on the customer credit tier.
-     *
-     * @param creditTier      Customer credit tier: A, B, C, or other.
-     * @param principalAmount Loan principal amount.
-     * @return Surcharge amount rounded to 2 decimal places.
-     */
-    public BigDecimal calculateTierSurcharge(String creditTier, BigDecimal principalAmount) {
-        if (principalAmount == null) return BigDecimal.ZERO;
-        String tier = (creditTier != null) ? creditTier.trim().toUpperCase() : "";
-
-        return switch (tier) {
-            case "A" -> BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-            case "B" -> principalAmount.multiply(new BigDecimal("0.005")).setScale(2, RoundingMode.HALF_UP);
-            case "C" -> principalAmount.multiply(new BigDecimal("0.015")).setScale(2, RoundingMode.HALF_UP);
-            default -> principalAmount.multiply(new BigDecimal("0.030")).setScale(2, RoundingMode.HALF_UP);
-        };
-    }
-}
-'''
-                    return CodeGenSchema(
-                        module_name="loan_tier_surcharge",
-                        target_java_code=java_code.strip(),
-                        java_class_name="LoanTierSurchargeService"
-                    )
-                elif "INTEREST" in clean_name or "2200" in clean_name:
-                    java_code = '''package com.modern.services;
-
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-
-/**
- * Loan interest calculator — modernized from COBOL CALCULATE-INTEREST paragraph.
- */
-public class LoanInterestService {
-
-    /** Result record containing computed interest values. */
-    public record InterestResult(BigDecimal monthlyRate, BigDecimal monthlyInterest, BigDecimal totalInterest) {}
-
-    /**
-     * Calculates monthly interest rate and charge from annual percentage.
-     *
-     * @param principal     Loan principal amount.
-     * @param annualRatePct Annual interest rate in percent (e.g. 6.0 for 6%).
-     * @param priorTotal    Previously accumulated total interest.
-     * @return InterestResult with monthly rate, monthly interest, and running total.
-     */
-    public InterestResult calculateInterest(BigDecimal principal, BigDecimal annualRatePct, BigDecimal priorTotal) {
-        BigDecimal prior = priorTotal != null ? priorTotal : BigDecimal.ZERO;
-        BigDecimal monthlyRate = annualRatePct.divide(new BigDecimal("1200.0"), 6, RoundingMode.HALF_UP);
-        BigDecimal monthlyInterest = principal.multiply(monthlyRate).setScale(2, RoundingMode.HALF_UP);
-        BigDecimal newTotal = prior.add(monthlyInterest);
-        return new InterestResult(monthlyRate, monthlyInterest, newTotal);
-    }
-}
-'''
-                    return CodeGenSchema(
-                        module_name="loan_interest_calculator",
-                        target_java_code=java_code.strip(),
-                        java_class_name="LoanInterestService"
-                    )
-                elif "AMORTIZATION" in clean_name or "2300" in clean_name:
-                    java_code = '''package com.modern.services;
-
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-
-/**
- * Loan amortization service — modernized from COBOL COMPUTE-AMORTIZATION paragraph.
- */
-public class LoanAmortizationService {
-
-    /** Result record for amortization computation. */
-    public record AmortizationResult(BigDecimal monthlyPayment, BigDecimal principalPaid, BigDecimal finalBalance) {}
-
-    /**
-     * Computes monthly payment, principal paid, and remaining balance.
-     *
-     * @param principal       Loan principal.
-     * @param termMonths      Loan term in months (must be > 0).
-     * @param monthlyRate     Monthly interest rate.
-     * @param monthlyInterest Monthly interest amount.
-     * @param tierSurcharge   Optional tier surcharge.
-     * @return AmortizationResult.
-     * @throws IllegalArgumentException if termMonths <= 0.
-     */
-    public AmortizationResult computeAmortization(BigDecimal principal, int termMonths,
-            BigDecimal monthlyRate, BigDecimal monthlyInterest, BigDecimal tierSurcharge) {
-        if (termMonths <= 0) throw new IllegalArgumentException("Loan term months must be > 0");
-
-        BigDecimal surcharge = tierSurcharge != null ? tierSurcharge : BigDecimal.ZERO;
-        BigDecimal monthlyPayment;
-
-        if (monthlyRate.compareTo(BigDecimal.ZERO) > 0) {
-            double r = monthlyRate.doubleValue();
-            double p = principal.doubleValue();
-            double pay = (p * r) / (1.0 - Math.pow(1.0 + r, -termMonths));
-            monthlyPayment = BigDecimal.valueOf(pay).setScale(2, RoundingMode.HALF_UP);
-        } else {
-            monthlyPayment = principal.divide(BigDecimal.valueOf(termMonths), 2, RoundingMode.HALF_UP);
-        }
-
-        BigDecimal principalPaid = monthlyPayment.subtract(monthlyInterest).setScale(2, RoundingMode.HALF_UP);
-        BigDecimal finalBalance = principal.subtract(principalPaid).add(surcharge).setScale(2, RoundingMode.HALF_UP);
-        return new AmortizationResult(monthlyPayment, principalPaid, finalBalance);
-    }
-}
-'''
-                    return CodeGenSchema(
-                        module_name="loan_amortization",
-                        target_java_code=java_code.strip(),
-                        java_class_name="LoanAmortizationService"
-                    )
-                else:
-                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
-                    java_code = f'''package com.modern.services;
-
-import java.util.Map;
-import java.util.HashMap;
-
-/** Modernized service for COBOL block {chunk.name}. */
-public class {class_name} {{
-    public Map<String, Object> execute(Map<String, Object> context) {{
-        Map<String, Object> ctx = context != null ? new HashMap<>(context) : new HashMap<>();
-        ctx.put("status", "SUCCESS");
-        ctx.put("processed", true);
-        return ctx;
-    }}
-}}
-'''
-                    return CodeGenSchema(
-                        module_name=re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_"),
-                        target_java_code=java_code.strip(),
-                        java_class_name=class_name
-                    )
-
-            elif chunk.language == "vb":
-                if "ValidateCustomer" in chunk.name:
-                    java_code = '''package com.modern.services;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.regex.Pattern;
-
-/**
- * Customer validator — modernized from VB ValidateCustomer routine.
- */
-public class CustomerValidator {
-
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
-
-    /** Immutable customer data record. */
-    public record CustomerRecord(
-            String customerId, String fullName, int age, int creditScore,
-            double annualIncome, double totalDebt, String email, boolean isActive) {}
-
-    /** Validation result record. */
-    public record ValidationResult(
-            boolean isValid, String riskCategory, double maxLoanEligibility,
-            double debtToIncomeRatio, List<String> errorMessages) {}
-
-    /**
-     * Validates a customer record and determines loan eligibility.
-     *
-     * @param cust The customer record.
-     * @return ValidationResult with risk category and eligibility.
-     */
-    public ValidationResult validateCustomer(CustomerRecord cust) {
-        List<String> errors = new ArrayList<>();
-
-        if (cust.age() < 18 || cust.age() > 120)
-            errors.add("Customer age must be between 18 and 120.");
-        if (cust.creditScore() < 300 || cust.creditScore() > 850)
-            errors.add("Credit score is out of standard range (300-850).");
-        if (cust.email() == null || !EMAIL_PATTERN.matcher(cust.email()).matches())
-            errors.add("Invalid customer email address format.");
-
-        double dti = cust.annualIncome() > 0
-                ? Math.round((cust.totalDebt() / cust.annualIncome()) * 10000.0) / 100.0
-                : 999.99;
-        if (cust.annualIncome() <= 0)
-            errors.add("Annual income must be strictly greater than zero.");
-        if (!cust.isActive())
-            errors.add("Inactive customer accounts cannot be processed for credit.");
-
-        if (errors.isEmpty()) {
-            String risk = determineRiskCategory(cust.creditScore(), dti);
-            double limit = calculateLoanLimit(cust.annualIncome(), risk);
-            return new ValidationResult(true, risk, limit, dti, List.of());
-        }
-        return new ValidationResult(false, "REJECTED", 0.0, dti, errors);
-    }
-
-    /** Determines risk category from credit score and DTI ratio. */
-    public static String determineRiskCategory(int score, double dti) {
-        if (score >= 750 && dti <= 35.0) return "LOW_RISK_PRIME";
-        if (score >= 650 && dti <= 45.0) return "MEDIUM_RISK_STANDARD";
-        if (score >= 580 && dti <= 50.0) return "HIGH_RISK_SUBPRIME";
-        return "INELIGIBLE";
-    }
-
-    /** Calculates maximum loan eligibility based on income and risk tier. */
-    public static double calculateLoanLimit(double income, String riskTier) {
-        return switch (riskTier) {
-            case "LOW_RISK_PRIME" -> Math.round(income * 4.5 * 100.0) / 100.0;
-            case "MEDIUM_RISK_STANDARD" -> Math.round(income * 3.0 * 100.0) / 100.0;
-            case "HIGH_RISK_SUBPRIME" -> Math.round(income * 1.5 * 100.0) / 100.0;
-            default -> 0.0;
-        };
-    }
-}
-'''
-                    return CodeGenSchema(
-                        module_name="customer_validator",
-                        target_java_code=java_code.strip(),
-                        java_class_name="CustomerValidator"
-                    )
-                elif "DetermineRiskCategory" in chunk.name:
-                    java_code = '''package com.modern.services;
-
-/** Risk category determination — modernized from VB DetermineRiskCategory. */
-public class RiskCategoryService {
-
-    /**
-     * Determines credit risk category from score and debt-to-income ratio.
-     *
-     * @param score Credit score (300–850).
-     * @param dti   Debt-to-income ratio as percentage.
-     * @return Risk tier string.
-     */
-    public static String determineRiskCategory(int score, double dti) {
-        if (score >= 750 && dti <= 35.0) return "LOW_RISK_PRIME";
-        if (score >= 650 && dti <= 45.0) return "MEDIUM_RISK_STANDARD";
-        if (score >= 580 && dti <= 50.0) return "HIGH_RISK_SUBPRIME";
-        return "INELIGIBLE";
-    }
-}
-'''
-                    return CodeGenSchema(
-                        module_name="risk_category_service",
-                        target_java_code=java_code.strip(),
-                        java_class_name="RiskCategoryService"
-                    )
-                elif "CalculateLoanLimit" in chunk.name:
-                    java_code = '''package com.modern.services;
-
-/** Loan limit calculator — modernized from VB CalculateLoanLimit function. */
-public class LoanLimitService {
-
-    /**
-     * Calculates maximum loan eligibility based on income and risk tier.
-     *
-     * @param income   Annual income.
-     * @param riskTier Determined risk tier.
-     * @return Maximum loan amount.
-     */
-    public static double calculateLoanLimit(double income, String riskTier) {
-        return switch (riskTier) {
-            case "LOW_RISK_PRIME" -> Math.round(income * 4.5 * 100.0) / 100.0;
-            case "MEDIUM_RISK_STANDARD" -> Math.round(income * 3.0 * 100.0) / 100.0;
-            case "HIGH_RISK_SUBPRIME" -> Math.round(income * 1.5 * 100.0) / 100.0;
-            default -> 0.0;
-        };
-    }
-}
-'''
-                    return CodeGenSchema(
-                        module_name="loan_limit_service",
-                        target_java_code=java_code.strip(),
-                        java_class_name="LoanLimitService"
-                    )
-                else:
-                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
-                    java_code = f'''package com.modern.services;
-
-import java.util.Map;
-
-/** Modernized Java service for VB routine {chunk.name}. */
-public class {class_name} {{
-    public Map<String, String> execute() {{
-        return Map.of("status", "SUCCESS", "routine", "{chunk.name}");
-    }}
-}}
-'''
-                    return CodeGenSchema(
-                        module_name=re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_"),
-                        target_java_code=java_code.strip(),
-                        java_class_name=class_name
-                    )
-
-            elif chunk.language == "java":
-                if "processDeposit" in chunk.name:
-                    java_code = '''package com.modern.services;
+            if "processDeposit" in chunk.name:
+                java_code = '''package com.modern.services;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -380,8 +77,8 @@ public class ModernDepositService {
     public TransactionRecord processDeposit(BankAccount account, String txId, BigDecimal amount) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             TransactionRecord rejected = new TransactionRecord(
-                    txId, account.getAccountId(), "DEPOSIT", amount,
-                    account.getCurrentBalance(), false, "Deposit amount must be positive.");
+                txId, account.getAccountId(), "DEPOSIT", amount,
+                account.getCurrentBalance(), false, "Deposit amount must be positive.");
             account.getTransactionHistory().add(rejected);
             return rejected;
         }
@@ -389,20 +86,20 @@ public class ModernDepositService {
         BigDecimal newBal = account.getCurrentBalance().add(amount).setScale(2, RoundingMode.HALF_UP);
         account.setCurrentBalance(newBal);
         TransactionRecord success = new TransactionRecord(
-                txId, account.getAccountId(), "DEPOSIT", amount,
-                newBal, true, "Deposit completed successfully.");
+            txId, account.getAccountId(), "DEPOSIT", amount,
+            newBal, true, "Deposit completed successfully.");
         account.getTransactionHistory().add(success);
         return success;
     }
 }
 '''
-                    return CodeGenSchema(
-                        module_name="deposit_service",
-                        target_java_code=java_code.strip(),
-                        java_class_name="ModernDepositService"
-                    )
-                elif "processWithdrawal" in chunk.name:
-                    java_code = '''package com.modern.services;
+                return CodeGenSchema(
+                    module_name="deposit_service",
+                    target_java_code=java_code.strip(),
+                    java_class_name="ModernDepositService"
+                )
+            elif "processWithdrawal" in chunk.name:
+                java_code = '''package com.modern.services;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -459,16 +156,16 @@ public class ModernWithdrawalService {
     public TransactionRecord processWithdrawal(BankAccount account, String txId, BigDecimal amount) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             TransactionRecord rejected = new TransactionRecord(
-                    txId, account.getAccountId(), "WITHDRAWAL", amount,
-                    account.getCurrentBalance(), false, "Withdrawal amount must be positive.");
+                txId, account.getAccountId(), "WITHDRAWAL", amount,
+                account.getCurrentBalance(), false, "Withdrawal amount must be positive.");
             account.getTransactionHistory().add(rejected);
             return rejected;
         }
 
         if (account.getDailyWithdrawnAmount().add(amount).compareTo(DAILY_WITHDRAWAL_LIMIT) > 0) {
             TransactionRecord rejected = new TransactionRecord(
-                    txId, account.getAccountId(), "WITHDRAWAL", amount,
-                    account.getCurrentBalance(), false, "Exceeded daily withdrawal limit.");
+                txId, account.getAccountId(), "WITHDRAWAL", amount,
+                account.getCurrentBalance(), false, "Exceeded daily withdrawal limit.");
             account.getTransactionHistory().add(rejected);
             return rejected;
         }
@@ -478,53 +175,122 @@ public class ModernWithdrawalService {
             account.setCurrentBalance(newBal);
             account.addDailyWithdrawnAmount(amount);
             TransactionRecord success = new TransactionRecord(
-                    txId, account.getAccountId(), "WITHDRAWAL", amount, newBal, true, "Withdrawal approved.");
+                txId, account.getAccountId(), "WITHDRAWAL", amount, newBal, true, "Withdrawal approved.");
             account.getTransactionHistory().add(success);
             return success;
         } else if (account.isOverdraftProtectionEnabled()) {
             BigDecimal newBal = account.getCurrentBalance().subtract(amount).subtract(OVERDRAFT_FEE)
-                    .setScale(2, RoundingMode.HALF_UP);
+                .setScale(2, RoundingMode.HALF_UP);
             account.setCurrentBalance(newBal);
             account.addDailyWithdrawnAmount(amount);
             TransactionRecord success = new TransactionRecord(
-                    txId, account.getAccountId(), "WITHDRAWAL", amount, newBal, true,
-                    "Overdraft approved with $35 fee applied.");
+                txId, account.getAccountId(), "WITHDRAWAL", amount, newBal, true,
+                "Overdraft approved with $35 fee applied.");
             account.getTransactionHistory().add(success);
             return success;
         } else {
             TransactionRecord rejected = new TransactionRecord(
-                    txId, account.getAccountId(), "WITHDRAWAL", amount,
-                    account.getCurrentBalance(), false,
-                    "Insufficient funds and overdraft protection disabled.");
+                txId, account.getAccountId(), "WITHDRAWAL", amount,
+                account.getCurrentBalance(), false,
+                "Insufficient funds and overdraft protection disabled.");
             account.getTransactionHistory().add(rejected);
             return rejected;
         }
     }
 }
 '''
-                    return CodeGenSchema(
-                        module_name="withdrawal_service",
-                        target_java_code=java_code.strip(),
-                        java_class_name="ModernWithdrawalService"
+                return CodeGenSchema(
+                    module_name="withdrawal_service",
+                    target_java_code=java_code.strip(),
+                    java_class_name="ModernWithdrawalService"
+                )
+            else:
+                # ── Smart per-method Java stub derived from actual raw_code ──
+                import re as _re
+                raw    = chunk.raw_code.strip()
+                cname  = "".join(w.capitalize() for w in _re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split())
+                pkg    = "package com.modern.services;"
+                name   = chunk.name
+
+                # Try to extract the actual method/field declarations from raw source
+                # and modernise them directly into the class body
+                method_bodies: list[str] = []
+
+                # Case 1: raw code contains a method/constructor signature
+                method_match = _re.search(
+                    r'((?:public|private|protected|static|final|synchronized|default)\s+)+'
+                    r'([\w<>\[\],\s]+)\s+(' + _re.escape(name) + r')\s*\(([^)]*)\)\s*\{(.*?)\}',
+                    raw, _re.DOTALL
+                )
+                if method_match:
+                    # Use the raw implementation directly, wrapped in modern class
+                    mod_sig = method_match.group(0).strip()
+                    method_bodies.append(mod_sig)
+                elif name.startswith("get"):
+                    field = name[3:]
+                    field_lc = field[0].lower() + field[1:]
+                    ret_match = _re.search(r'return\s+([\w.]+)', raw)
+                    ret_expr  = ret_match.group(1) if ret_match else field_lc
+                    # Infer return type from raw code if available
+                    type_match = _re.search(r'(?:public|private)\s+([\w<>\[\]]+)\s+get' + _re.escape(field), raw)
+                    ret_type   = type_match.group(1) if type_match else "Object"
+                    method_bodies.append(
+                        f"    public {ret_type} {name}() {{ return {ret_expr}; }}"
                     )
-                else:
-                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
-                    java_code = f'''package com.modern.services;
-
-import java.util.Map;
-
-/** Modernized Java 17+ service for legacy method {chunk.name}. */
-public class {class_name} {{
-    public Map<String, String> execute() {{
-        return Map.of("status", "SUCCESS", "method", "{chunk.name}");
-    }}
-}}
-'''
+                elif name.startswith("set"):
+                    field    = name[3:]
+                    field_lc = field[0].lower() + field[1:]
+                    type_match = _re.search(r'(?:public|private)\s+void\s+set' + _re.escape(field) + r'\s*\(\s*([\w<>\[\]]+)', raw)
+                    param_type = type_match.group(1) if type_match else "Object"
+                    method_bodies.append(
+                        f"    public void {name}({param_type} {field_lc}) {{ this.{field_lc} = {field_lc}; }}"
+                    )
+                elif name.startswith("is") or name.startswith("has"):
+                    field    = name[2:]
+                    field_lc = field[0].lower() + field[1:]
+                    method_bodies.append(
+                        f"    public boolean {name}() {{ return {field_lc}; }}"
+                    )
+                elif name.startswith("add") or name.startswith("record"):
+                    type_match = _re.search(r'\(\s*([\w<>\[\]]+)\s+\w+\s*\)', raw)
+                    param_type = type_match.group(1) if type_match else "Object"
+                    field_lc   = name[3:4].lower() + name[4:] if len(name) > 3 else "value"
+                    method_bodies.append(
+                        f"    public void {name}({param_type} value) {{ this.{field_lc} = this.{field_lc} + value; }}"
+                    )
+                elif name == "main":
+                    method_bodies.append(
+                        f"    public static void main(String[] args) {{\n"
+                        f"        System.out.println(\"{cname} — standalone demo entry point\");\n"
+                        f"    }}"
+                    )
+                elif name == "HEADER":
+                    # Header chunk: just package + imports, no class body methods needed
+                    java_code = raw if raw else f"{pkg}\n"
                     return CodeGenSchema(
                         module_name=re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_"),
                         target_java_code=java_code.strip(),
-                        java_class_name=class_name
+                        java_class_name=cname
                     )
+                else:
+                    method_bodies.append(
+                        f"    public void {name}() {{\n"
+                        f"        // Modernized implementation of legacy {name}\n"
+                        f"    }}"
+                    )
+
+                java_code = (
+                    f"{pkg}\n\n"
+                    f"/** Modernized Java 17+ class for legacy {chunk.name}. */\n"
+                    f"public class {cname} {{\n\n"
+                    + "\n\n".join(method_bodies) + "\n\n"
+                    + "}"
+                )
+                return CodeGenSchema(
+                    module_name=re.sub(r"[^a-zA-Z0-9_]", "_", chunk.name.lower()).strip("_"),
+                    target_java_code=java_code.strip(),
+                    java_class_name=cname
+                )
 
             # Generic fallback
             class_name = "GenericService"
@@ -557,9 +323,6 @@ public class {class_name} {{
                          len(res.target_java_code.splitlines()), chunk.chunk_id)
         return GeneratedCode(
             chunk_id=chunk.chunk_id,
-            target_code="",          # Java-only mode: no Python output
-            module_name=res.module_name,
-            imports=[],
             target_java_code=res.target_java_code,
             java_class_name=res.java_class_name,
             java_package=res.java_package,

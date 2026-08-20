@@ -6,7 +6,6 @@ from src.agents.chunk_evaluator import ChunkEvaluatorAgent
 from src.agents.dependency_evaluator import DependencyEvaluatorAgent
 from src.agents.documenter import DocumenterAgent
 from src.agents.doc_evaluator import DocEvaluatorAgent
-from src.agents.doc_refiner import DocRefinerAgent
 from src.agents.code_generator import CodeGeneratorAgent
 from src.agents.code_evaluator import CodeEvaluatorAgent
 from src.agents.code_refiner import CodeRefinerAgent

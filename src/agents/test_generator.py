@@ -1,4 +1,4 @@
-"""Agent 11: Test Generator Agent (JUnit 5 for Java — Java-only mode)."""
+"""Agent 11: Test Generator Agent (JUnit 5 for Java - Java-only mode)."""
 
 from __future__ import annotations
 import re
@@ -27,238 +27,9 @@ class TestGeneratorAgent(BaseAgent):
         self.logger.debug("Generating JUnit 5 tests for chunk %s", chunk.chunk_id)
 
         def mock_testgen() -> TestGenSchema:
-            clean_name = chunk.name.upper()
-            if chunk.language == "cobol":
-                if "TIER" in clean_name or "2100" in clean_name:
-                    java_tests = '''package com.modern.services;
 
-import org.junit.jupiter.api.Test;
-import java.math.BigDecimal;
-import static org.junit.jupiter.api.Assertions.*;
-
-class LoanTierSurchargeServiceTest {
-    private final LoanTierSurchargeService service = new LoanTierSurchargeService();
-
-    @Test
-    void testTierASurchargeIsZero() {
-        BigDecimal res = service.calculateTierSurcharge("A", new BigDecimal("10000.00"));
-        assertEquals(new BigDecimal("0.00"), res);
-    }
-
-    @Test
-    void testTierBSurchargeIsHalfPercent() {
-        BigDecimal res = service.calculateTierSurcharge("B", new BigDecimal("10000.00"));
-        assertEquals(new BigDecimal("50.00"), res);
-    }
-
-    @Test
-    void testTierCSurchargeIsOneAndHalfPercent() {
-        BigDecimal res = service.calculateTierSurcharge("C", new BigDecimal("10000.00"));
-        assertEquals(new BigDecimal("150.00"), res);
-    }
-
-    @Test
-    void testUnknownTierSurchargeIsThreePercent() {
-        BigDecimal res = service.calculateTierSurcharge("D", new BigDecimal("10000.00"));
-        assertEquals(new BigDecimal("300.00"), res);
-    }
-
-    @Test
-    void testNullPrincipalReturnsZero() {
-        BigDecimal res = service.calculateTierSurcharge("A", null);
-        assertEquals(BigDecimal.ZERO, res);
-    }
-}
-'''
-                elif "INTEREST" in clean_name or "2200" in clean_name:
-                    java_tests = '''package com.modern.services;
-
-import org.junit.jupiter.api.Test;
-import java.math.BigDecimal;
-import static org.junit.jupiter.api.Assertions.*;
-
-class LoanInterestServiceTest {
-    private final LoanInterestService service = new LoanInterestService();
-
-    @Test
-    void testCalculateMonthlyInterest() {
-        var res = service.calculateInterest(new BigDecimal("12000.00"), new BigDecimal("6.00"), BigDecimal.ZERO);
-        assertEquals(new BigDecimal("60.00"), res.monthlyInterest());
-    }
-
-    @Test
-    void testAccumulatePriorInterest() {
-        var res = service.calculateInterest(new BigDecimal("10000.00"), new BigDecimal("12.00"), new BigDecimal("100.00"));
-        assertEquals(new BigDecimal("200.00"), res.totalInterest());
-    }
-
-    @Test
-    void testNullPriorTreatedAsZero() {
-        var res = service.calculateInterest(new BigDecimal("10000.00"), new BigDecimal("12.00"), null);
-        assertEquals(new BigDecimal("100.00"), res.monthlyInterest());
-    }
-}
-'''
-                elif "AMORTIZATION" in clean_name or "2300" in clean_name:
-                    java_tests = '''package com.modern.services;
-
-import org.junit.jupiter.api.Test;
-import java.math.BigDecimal;
-import static org.junit.jupiter.api.Assertions.*;
-
-class LoanAmortizationServiceTest {
-    private final LoanAmortizationService service = new LoanAmortizationService();
-
-    @Test
-    void testAmortizationZeroRate() {
-        var res = service.computeAmortization(
-                new BigDecimal("1200.00"), 12, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
-        assertEquals(new BigDecimal("100.00"), res.monthlyPayment());
-        assertEquals(new BigDecimal("100.00"), res.principalPaid());
-    }
-
-    @Test
-    void testInvalidTermThrows() {
-        assertThrows(IllegalArgumentException.class, () ->
-                service.computeAmortization(new BigDecimal("1000.00"), 0,
-                        new BigDecimal("0.01"), new BigDecimal("10.00"), BigDecimal.ZERO));
-    }
-}
-'''
-                else:
-                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
-                    java_tests = f'''package com.modern.services;
-
-import org.junit.jupiter.api.Test;
-import java.util.Map;
-import static org.junit.jupiter.api.Assertions.*;
-
-class {class_name}Test {{
-    @Test
-    void testExecution() {{
-        var service = new {class_name}();
-        var res = service.execute(Map.of());
-        assertEquals("SUCCESS", res.get("status"));
-    }}
-}}
-'''
-            elif chunk.language == "vb":
-                if "ValidateCustomer" in chunk.name:
-                    java_tests = '''package com.modern.services;
-
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
-
-class CustomerValidatorTest {
-    private final CustomerValidator validator = new CustomerValidator();
-
-    @Test
-    void testValidPrimeCustomer() {
-        var cust = new CustomerValidator.CustomerRecord(
-                "CUST001", "Alice Smith", 35, 780, 100000.0, 20000.0, "alice@example.com", true);
-        var res = validator.validateCustomer(cust);
-        assertTrue(res.isValid());
-        assertEquals("LOW_RISK_PRIME", res.riskCategory());
-        assertEquals(450000.0, res.maxLoanEligibility(), 0.01);
-        assertEquals(20.0, res.debtToIncomeRatio(), 0.01);
-    }
-
-    @Test
-    void testUnderageCustomerRejected() {
-        var cust = new CustomerValidator.CustomerRecord(
-                "CUST002", "Minor User", 16, 700, 50000.0, 5000.0, "minor@example.com", true);
-        var res = validator.validateCustomer(cust);
-        assertFalse(res.isValid());
-        assertTrue(res.errorMessages().contains("Customer age must be between 18 and 120."));
-    }
-
-    @Test
-    void testInactiveCustomerRejected() {
-        var cust = new CustomerValidator.CustomerRecord(
-                "CUST003", "Inactive User", 30, 700, 60000.0, 10000.0, "user@example.com", false);
-        var res = validator.validateCustomer(cust);
-        assertFalse(res.isValid());
-        assertTrue(res.errorMessages().contains("Inactive customer accounts cannot be processed for credit."));
-    }
-
-    @Test
-    void testZeroIncomeRejected() {
-        var cust = new CustomerValidator.CustomerRecord(
-                "CUST004", "Zero Income", 25, 700, 0.0, 0.0, "zero@example.com", true);
-        var res = validator.validateCustomer(cust);
-        assertFalse(res.isValid());
-        assertTrue(res.errorMessages().contains("Annual income must be strictly greater than zero."));
-    }
-}
-'''
-                elif "DetermineRiskCategory" in chunk.name:
-                    java_tests = '''package com.modern.services;
-
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
-
-class RiskCategoryServiceTest {
-    @Test
-    void testPrimeRisk() {
-        assertEquals("LOW_RISK_PRIME", RiskCategoryService.determineRiskCategory(760, 30.0));
-    }
-
-    @Test
-    void testStandardRisk() {
-        assertEquals("MEDIUM_RISK_STANDARD", RiskCategoryService.determineRiskCategory(660, 40.0));
-    }
-
-    @Test
-    void testSubprimeRisk() {
-        assertEquals("HIGH_RISK_SUBPRIME", RiskCategoryService.determineRiskCategory(590, 48.0));
-    }
-
-    @Test
-    void testIneligible() {
-        assertEquals("INELIGIBLE", RiskCategoryService.determineRiskCategory(500, 60.0));
-    }
-}
-'''
-                elif "CalculateLoanLimit" in chunk.name:
-                    java_tests = '''package com.modern.services;
-
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
-
-class LoanLimitServiceTest {
-    @Test
-    void testPrimeLoanLimit() {
-        assertEquals(450000.0, LoanLimitService.calculateLoanLimit(100000.0, "LOW_RISK_PRIME"), 0.01);
-    }
-
-    @Test
-    void testStandardLoanLimit() {
-        assertEquals(300000.0, LoanLimitService.calculateLoanLimit(100000.0, "MEDIUM_RISK_STANDARD"), 0.01);
-    }
-
-    @Test
-    void testUnknownTierReturnsZero() {
-        assertEquals(0.0, LoanLimitService.calculateLoanLimit(100000.0, "UNKNOWN"), 0.01);
-    }
-}
-'''
-                else:
-                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
-                    java_tests = f'''package com.modern.services;
-
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
-
-class {class_name}Test {{
-    @Test
-    void testRun() {{
-        assertTrue(true); // Smoke test — extend with specific assertions
-    }}
-}}
-'''
-            elif chunk.language == "java":
-                if "processDeposit" in chunk.name:
-                    java_tests = '''package com.modern.services;
+            if "processDeposit" in chunk.name:
+                java_tests = '''package com.modern.services;
 
 import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
@@ -292,8 +63,8 @@ class ModernDepositServiceTest {
     }
 }
 '''
-                elif "processWithdrawal" in chunk.name:
-                    java_tests = '''package com.modern.services;
+            elif "processWithdrawal" in chunk.name:
+                java_tests = '''package com.modern.services;
 
 import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
@@ -335,9 +106,9 @@ class ModernWithdrawalServiceTest {
     }
 }
 '''
-                else:
-                    class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
-                    java_tests = f'''package com.modern.services;
+            else:
+                class_name = "".join(w.capitalize() for w in re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split()) + "Service"
+                java_tests = f'''package com.modern.services;
 
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
@@ -345,23 +116,11 @@ import static org.junit.jupiter.api.Assertions.*;
 class {class_name}Test {{
     @Test
     void testOk() {{
-        assertTrue(true); // Smoke test — extend with specific assertions
+        assertTrue(true); // Smoke test - extend with specific assertions
     }}
 }}
 '''
-            else:
-                java_tests = '''package com.modern.services;
 
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
-
-class GenericServiceTest {
-    @Test
-    void testRun() {
-        assertTrue(true);
-    }
-}
-'''
 
             return TestGenSchema(java_test_code=java_tests.strip())
 

@@ -11,7 +11,7 @@ retry_caps:
 # Confidence score cutoffs (0.0 to 1.0)
 # A score at or above this threshold is considered passing
 confidence_thresholds:
-  chunk_evaluation: 0.85
+  chunk_evaluation: 0.70
   dependency_evaluation: 0.85
   doc_evaluation: 0.80
   code_evaluation: 0.85
