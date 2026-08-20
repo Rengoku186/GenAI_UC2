@@ -187,6 +187,7 @@ Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}
         timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         report_path = self.output_dir / f"{filename_prefix}_{timestamp_str}.json"
         
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, default=str)
 

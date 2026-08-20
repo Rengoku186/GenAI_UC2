@@ -60,13 +60,15 @@ class JavaParser:
                 )
             )
 
-        # Parse methods and nested classes with brace counting
         in_method = False
         method_name = ""
         method_start = -1
         method_sig = ""
         method_lines: list[str] = []
-        brace_depth = 0
+        method_brace_depth = 0
+        
+        global_brace_depth = 0
+        class_stack: list[list] = []  # [class_name, base_depth, has_opened]
 
         for idx in range(first_class_line, len(self.lines)):
             line = self.lines[idx]
@@ -76,17 +78,29 @@ class JavaParser:
             if not in_method and (clean.startswith("//") or clean.startswith("/*") or clean.startswith("*")):
                 continue
 
+            braces_diff = line.count("{") - line.count("}")
+
             if not in_method:
+                c_match = class_pattern.match(clean)
+                if c_match:
+                    class_name = c_match.group(3)
+                    class_stack.append([class_name, global_brace_depth, False])
+
                 m_match = method_pattern.match(clean)
                 # Ensure it's not a control structure like if/for/while/switch
                 if m_match and m_match.group(3) not in ["if", "for", "while", "switch", "catch"]:
                     in_method = True
-                    method_name = m_match.group(3)
+                    base_name = m_match.group(3)
+                    prefix = ".".join(c[0] for c in class_stack)
+                    method_name = f"{prefix}.{base_name}" if prefix else base_name
+                    
                     method_start = idx
                     method_sig = clean
                     method_lines = [line]
-                    brace_depth = line.count("{") - line.count("}")
-                    if brace_depth == 0 and "{" in line:
+                    method_brace_depth = braces_diff
+                    global_brace_depth += braces_diff
+                    
+                    if method_brace_depth == 0 and "{" in line:
                         # One-line method
                         chunks.append(
                             ChunkMetadata(
@@ -102,12 +116,22 @@ class JavaParser:
                             )
                         )
                         in_method = False
+                        method_name = ""
+                    
+                    if not in_method:
+                        # Process class open/close if one-line method was just parsed
+                        if class_stack and not class_stack[-1][2] and global_brace_depth > class_stack[-1][1]:
+                            class_stack[-1][2] = True
+                        while class_stack and class_stack[-1][2] and global_brace_depth <= class_stack[-1][1]:
+                            class_stack.pop()
                     continue
 
             if in_method:
                 method_lines.append(line)
-                brace_depth += line.count("{") - line.count("}")
-                if brace_depth <= 0:
+                method_brace_depth += braces_diff
+                global_brace_depth += braces_diff
+                
+                if method_brace_depth <= 0:
                     chunks.append(
                         ChunkMetadata(
                             chunk_id=f"{self.filename}_{method_name}",
@@ -123,6 +147,18 @@ class JavaParser:
                     )
                     in_method = False
                     method_name = ""
+            else:
+                global_brace_depth += braces_diff
+            
+            if not in_method:
+                # Update has_opened for the top class
+                if class_stack and not class_stack[-1][2]:
+                    if global_brace_depth > class_stack[-1][1]:
+                        class_stack[-1][2] = True
+
+                # Pop any classes that have opened and closed
+                while class_stack and class_stack[-1][2] and global_brace_depth <= class_stack[-1][1]:
+                    class_stack.pop()
 
         # Fallback if no methods extracted
         if not [c for c in chunks if c.chunk_type == "method"]:
@@ -163,7 +199,9 @@ class JavaParser:
             for other_chunk in chunks:
                 if other_chunk.chunk_id == chunk.chunk_id or other_chunk.chunk_type == "header":
                     continue
-                call_regex = re.compile(rf"\b{re.escape(other_chunk.name)}\s*\(", re.IGNORECASE)
+                # The method name might have class prefixes, e.g. 'AccountService.calculateFee'
+                base_name = other_chunk.name.split('.')[-1]
+                call_regex = re.compile(rf"\b{re.escape(base_name)}\s*\(", re.IGNORECASE)
                 if call_regex.search(chunk.raw_code):
                     edges.append(
                         DependencyEdge(

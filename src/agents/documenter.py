@@ -54,40 +54,41 @@ class DocumenterAgent(BaseAgent):
                     inputs.append(p)
 
             # Detect getter/setter/adder patterns
-            if name.startswith("get"):
-                field = name[3:]
+            base_name = name.split('.')[-1]
+            if base_name.startswith("get"):
+                field = base_name[3:]
                 purpose = f"Returns the value of `{field[0].lower() + field[1:]}` from the enclosing object."
                 outputs = [f"{field[0].lower() + field[1:]} ({return_type})"]
                 rules: list[str] = []
                 flow = f"Return the value of the `{field[0].lower() + field[1:]}` field."
-            elif name.startswith("set"):
-                field = name[3:]
+            elif base_name.startswith("set"):
+                field = base_name[3:]
                 purpose = f"Sets the value of `{field[0].lower() + field[1:]}` on the enclosing object."
                 outputs = ["void (mutates state)"]
                 rules = [f"Assigns the provided value directly to the `{field[0].lower() + field[1:]}` field."]
                 flow = f"Assign the provided argument to the `{field[0].lower() + field[1:]}` field."
-            elif name.startswith("is") or name.startswith("has"):
-                field = name[2:]
+            elif base_name.startswith("is") or base_name.startswith("has"):
+                field = base_name[2:] if base_name.startswith("is") else base_name[3:]
                 purpose = f"Returns the boolean state of `{field[0].lower() + field[1:]}` for this object."
                 outputs = [f"{field[0].lower() + field[1:]} (boolean)"]
                 rules = []
                 flow = f"Return the boolean flag `{field[0].lower() + field[1:]}`."
-            elif name.startswith("add") or name.startswith("record"):
-                purpose = f"Accumulates or appends a value related to `{name}` on the enclosing object."
+            elif base_name.startswith("add") or base_name.startswith("record"):
+                purpose = f"Accumulates or appends a value related to `{base_name}` on the enclosing object."
                 outputs = ["void (mutates internal collection or counter)"]
                 rules = [f"Mutates the internal state by adding the provided value to the existing accumulator."]
                 flow = f"Add the provided argument to the internal field; no return value."
-            elif name == "main":
+            elif base_name == "main":
                 purpose = "Entry point for standalone execution and demonstration of the service."
                 outputs = ["void (console output)"]
                 rules = ["Demonstrates the service by running representative scenarios."]
                 flow = "Instantiate service, run sample scenarios, print results to stdout."
-            elif name == "HEADER" or "import" in raw.lower() or "package" in raw.lower():
+            elif base_name == "HEADER" or "import" in raw.lower() or "package" in raw.lower():
                 purpose = "Package declaration, import statements, and class-level constants for the service."
                 outputs = []
                 rules = []
                 flow = "Declares the package, imports required Java libraries, and defines class-level constants."
-            elif "processDeposit" in name:
+            elif "processDeposit" in base_name:
                 purpose = "Processes deposit transaction into bank account, updating balance and appending audit trail."
                 outputs = ["TransactionRecord"]
                 inputs = ["BankAccount account", "String txId", "BigDecimal amount"]
@@ -97,7 +98,7 @@ class DocumenterAgent(BaseAgent):
                     "Scale to 2 decimal places with HALF_UP rounding"
                 ]
                 flow = "Verify positive amount; add to account balance; log approved transaction record."
-            elif "processWithdrawal" in name:
+            elif "processWithdrawal" in base_name:
                 purpose = "Processes withdrawal transaction with daily withdrawal limits, overdraft coverage, and low-balance fees."
                 outputs = ["TransactionRecord"]
                 inputs = ["BankAccount account", "String txId", "BigDecimal amount"]
@@ -111,7 +112,7 @@ class DocumenterAgent(BaseAgent):
                 ]
                 flow = "Check amount > 0; check daily limit; if sufficient funds subtract amount and check checking penalty; else if overdraft enabled subtract amount and $35 fee; else reject."
             else:
-                purpose = f"Executes the `{name}` operation as defined in the legacy source."
+                purpose = f"Executes the `{base_name}` operation as defined in the legacy source."
                 outputs = [f"{return_type}"] if return_type and return_type != "void" else ["void"]
                 rules = [
                     f"Preserves the exact legacy behavioral semantics of `{name}`.",

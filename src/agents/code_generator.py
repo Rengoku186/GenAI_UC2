@@ -30,7 +30,8 @@ class CodeGeneratorAgent(BaseAgent):
 
         def mock_codegen() -> CodeGenSchema:
 
-            if "processDeposit" in chunk.name:
+            base_name = chunk.name.split('.')[-1]
+            if "processDeposit" in base_name:
                 java_code = '''package com.modern.services;
 
 import java.math.BigDecimal;
@@ -98,7 +99,7 @@ public class ModernDepositService {
                     target_java_code=java_code.strip(),
                     java_class_name="ModernDepositService"
                 )
-            elif "processWithdrawal" in chunk.name:
+            elif "processWithdrawal" in base_name:
                 java_code = '''package com.modern.services;
 
 import java.math.BigDecimal;
@@ -210,7 +211,7 @@ public class ModernWithdrawalService {
                 raw    = chunk.raw_code.strip()
                 cname  = "".join(w.capitalize() for w in _re.sub(r"[^a-zA-Z0-9]", " ", chunk.name).split())
                 pkg    = "package com.modern.services;"
-                name   = chunk.name
+                name   = base_name
 
                 # Try to extract the actual method/field declarations from raw source
                 # and modernise them directly into the class body
