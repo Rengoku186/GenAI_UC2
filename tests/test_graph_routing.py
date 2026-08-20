@@ -5,17 +5,16 @@ from src.orchestrator.state import PipelineState, EvalResult, DocSection
 from src.orchestrator.router import (
     route_after_chunk_eval,
     route_after_dep_eval,
-    route_after_doc_eval,
     route_after_code_eval,
-    route_after_test_exec
+    route_after_test_exec,
+    route_after_compile_check,
 )
 
 
-def test_route_after_chunk_eval_success():
-    state: PipelineState = {
-        "eval_history": [
-            EvalResult(target_id="global_chunks", stage="chunk_evaluation", score=0.95, passed=True)
-        ],
+def _base_state(**overrides) -> dict:
+    """Helper: returns a minimal valid PipelineState with optional overrides."""
+    base = {
+        "eval_history": [],
         "retry_counts": {},
         "chunks": [],
         "source_files": [],
@@ -24,34 +23,52 @@ def test_route_after_chunk_eval_success():
         "generated_code": {},
         "tests": {},
         "current_chunk_id": None,
-        "stage": "chunk_evaluation",
+        "stage": "test",
         "flagged_for_review": [],
-        "metadata": {}
+        "metadata": {},
+        "compile_errors": {},
     }
+    base.update(overrides)
+    return base
+
+
+def test_route_after_chunk_eval_success():
+    state = _base_state(
+        eval_history=[
+            EvalResult(target_id="global_chunks", stage="chunk_evaluation", score=0.95, passed=True)
+        ]
+    )
     assert route_after_chunk_eval(state) == "dependency_mapper"
 
 
-def test_route_after_doc_eval_refine_loop():
-    state: PipelineState = {
-        "eval_history": [
-            EvalResult(target_id="CHUNK_1", stage="doc_evaluation", score=0.50, passed=False)
+def test_route_after_chunk_eval_retry():
+    state = _base_state(
+        eval_history=[
+            EvalResult(target_id="global_chunks", stage="chunk_evaluation", score=0.30, passed=False)
         ],
-        "docs": {
-            "CHUNK_1": DocSection(chunk_id="CHUNK_1", purpose="test", control_flow="test")
-        },
-        "retry_counts": {"CHUNK_1:documentation": 0},
-        "chunks": [],
-        "source_files": [],
-        "dependency_graph": [],
-        "generated_code": {},
-        "tests": {},
-        "current_chunk_id": None,
-        "stage": "doc_evaluation",
-        "flagged_for_review": [],
-        "metadata": {}
-    }
-    assert route_after_doc_eval(state) == "doc_refiner"
+        retry_counts={"global:chunking": 0}
+    )
+    assert route_after_chunk_eval(state) == "ingestion_chunker"
 
-    # When retry count hits max cap (3), it should proceed to code_generator
-    state["retry_counts"]["CHUNK_1:documentation"] = 3
-    assert route_after_doc_eval(state) == "code_generator"
+
+def test_route_after_compile_check_clean():
+    state = _base_state(compile_errors={})
+    assert route_after_compile_check(state) == "report_builder"
+
+
+def test_route_after_compile_check_errors():
+    state = _base_state(
+        compile_errors={"AccountProcessor.java": ["error: ';' expected"]},
+        retry_counts={"global:compile_check": 0}
+    )
+    assert route_after_compile_check(state) == "code_refiner"
+
+
+def test_route_after_test_exec_routes_to_compile_checker():
+    state = _base_state(
+        tests={"CHUNK_1": object()},
+        eval_history=[
+            EvalResult(target_id="CHUNK_1", stage="test_execution", score=0.95, passed=True)
+        ],
+    )
+    assert route_after_test_exec(state) == "java_compile_checker"

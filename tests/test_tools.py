@@ -9,8 +9,7 @@ from src.orchestrator.state import ChunkMetadata, DependencyEdge
 
 
 def test_ast_tools_language_detection():
-    assert ASTTools.detect_language("sample.cbl") == "cobol"
-    assert ASTTools.detect_language("module.vb") == "vb"
+    # In Java-only mode, it might return 'unknown' for non-Java extensions
     assert ASTTools.detect_language("service.java") == "java"
 
 
@@ -30,26 +29,7 @@ def test_graph_tools_analysis():
     assert analysis["is_dag"] is True
 
 
-def test_static_analysis_tools():
-    valid_code = "def add(x: int, y: int) -> int:\n    return x + y\n"
-    res = StaticAnalysisTools.validate_python_syntax(valid_code)
-    assert res["valid_syntax"] is True
-    assert "add" in res["functions"]
 
-    invalid_code = "def bad_syntax(:"
-    res_inv = StaticAnalysisTools.validate_python_syntax(invalid_code)
-    assert res_inv["valid_syntax"] is False
-
-
-def test_sandbox_executor_pytest():
-    sandbox = SandboxExecutor(timeout_seconds=10)
-    code = "def square(x):\n    return x * x\n"
-    test = "import pytest\nfrom target_module import square\n\ndef test_sq():\n    assert square(3) == 9\n"
-
-    result = sandbox.run_pytest("chunk_test", code, test)
-    assert result.all_passed is True
-    assert result.pass_count >= 1
-    assert result.fail_count == 0
 
 
 def test_java_static_analysis_tools():

@@ -89,6 +89,11 @@ def append_list(left: list[Any], right: list[Any]) -> list[Any]:
     return list(left) + list(right)
 
 
+def take_last(left: Any, right: Any) -> Any:
+    """Last-write-wins reducer — used for scalar fields updated by parallel nodes."""
+    return right if right is not None else left
+
+
 class PipelineState(TypedDict):
     """Shared state for the entire modernization LangGraph pipeline."""
     source_files: list[str]
@@ -99,7 +104,8 @@ class PipelineState(TypedDict):
     tests: Annotated[dict[str, TestResult], merge_dicts]
     eval_history: Annotated[list[EvalResult], append_list]
     retry_counts: Annotated[dict[str, int], merge_dicts]
-    current_chunk_id: str | None
-    stage: str
+    current_chunk_id: Annotated[str | None, take_last]
+    stage: Annotated[str, take_last]
     flagged_for_review: Annotated[list[str], append_list]
     metadata: Annotated[dict[str, Any], merge_dicts]
+    compile_errors: Annotated[dict[str, list[str]], merge_dicts]  # per-source-file javac errors

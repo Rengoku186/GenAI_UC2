@@ -113,8 +113,8 @@ def route_after_code_eval(state: PipelineState) -> Literal["code_refiner", "test
     return "test_generator"
 
 
-def route_after_test_exec(state: PipelineState) -> Literal["code_refiner", "report_builder"]:
-    """Routes to code_refiner if unit tests failed and chunk is under retry cap, else proceeds to report_builder."""
+def route_after_test_exec(state: PipelineState) -> Literal["code_refiner", "java_compile_checker"]:
+    """Routes to code_refiner if unit tests failed and chunk is under retry cap, else proceeds to java_compile_checker."""
     eval_history = state.get("eval_history", [])
     tests = state.get("tests", {})
     retry_counts = state.get("retry_counts", {})
@@ -130,5 +130,31 @@ def route_after_test_exec(state: PipelineState) -> Literal["code_refiner", "repo
                     logger.warning("[Router] Test execution failed for chunk %s (Attempt %d/%d); routing back to code_refiner", cid, attempts + 1, cap)
                     return "code_refiner"
 
-    logger.info("[Router] Test execution phase complete; proceeding to report_builder")
+    logger.info("[Router] Test execution phase complete; proceeding to java_compile_checker")
+    return "java_compile_checker"
+
+
+def route_after_compile_check(state: PipelineState) -> Literal["code_refiner", "report_builder"]:
+    """Routes to code_refiner if javac found compile errors, otherwise proceeds to report_builder."""
+    compile_errors: dict = state.get("compile_errors", {})
+    retry_counts = state.get("retry_counts", {})
+    cap = _load_retry_caps().get("code_generation", 3)
+
+    for sf, errors in compile_errors.items():
+        if errors:
+            # Check retry cap using a global compile_check key
+            key = f"global:compile_check"
+            attempts = retry_counts.get(key, 0)
+            if attempts < cap:
+                logger.warning(
+                    "[Router] javac errors found in %s (Attempt %d/%d); routing to code_refiner. First error: %s",
+                    sf, attempts + 1, cap, errors[0] if errors else "unknown"
+                )
+                return "code_refiner"
+            logger.warning(
+                "[Router] javac compile check retry cap reached for %s (%d/%d); proceeding to report_builder.",
+                sf, attempts, cap
+            )
+
+    logger.info("[Router] Compile check passed for all source files; proceeding to report_builder.")
     return "report_builder"

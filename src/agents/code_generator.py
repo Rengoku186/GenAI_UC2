@@ -9,6 +9,7 @@ from src.prompts.codegen_prompts import (
     CODEGEN_SYSTEM_PROMPT,
     CODEGEN_USER_PROMPT
 )
+from src.utils.chunk_cache import ChunkCache
 
 
 class CodeGenSchema(BaseModel):
@@ -27,6 +28,15 @@ class CodeGeneratorAgent(BaseAgent):
     def generate_chunk_code(self, chunk: ChunkMetadata, doc: DocSection) -> GeneratedCode:
         """Generates modern Java 17+/21+ code for a single chunk."""
         self.logger.debug("Generating Java 17+ code for chunk %s (%s)", chunk.chunk_id, chunk.language)
+
+        # ── Cache check ───────────────────────────────────────────────────
+        cached = ChunkCache.get(chunk.raw_code, "code")
+        if cached:
+            self.logger.info("Cache HIT for code chunk %s — skipping LLM call.", chunk.chunk_id)
+            try:
+                return GeneratedCode.model_validate({**cached, "chunk_id": chunk.chunk_id})
+            except Exception:
+                self.logger.warning("Cache entry invalid for %s — re-generating.", chunk.chunk_id)
 
         def mock_codegen() -> CodeGenSchema:
 
@@ -322,13 +332,16 @@ public class ModernWithdrawalService {
 
         self.logger.info("Generated Java 17+ code (%d lines) for chunk %s",
                          len(res.target_java_code.splitlines()), chunk.chunk_id)
-        return GeneratedCode(
+        code_obj = GeneratedCode(
             chunk_id=chunk.chunk_id,
             target_java_code=res.target_java_code,
             java_class_name=res.java_class_name,
             java_package=res.java_package,
             version=1
         )
+        # ── Cache store ───────────────────────────────────────────────────
+        ChunkCache.put(chunk.raw_code, "code", code_obj.model_dump())
+        return code_obj
 
     def execute(self, state: PipelineState) -> dict:
         chunks = {c.chunk_id: c for c in state.get("chunks", [])}

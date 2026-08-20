@@ -5,13 +5,15 @@ import sys
 from pathlib import Path
 from typing import Any
 from langgraph.graph import StateGraph, START, END
+from langgraph.types import Send
 
 from src.orchestrator.state import PipelineState
 from src.orchestrator.router import (
     route_after_chunk_eval,
     route_after_dep_eval,
     route_after_code_eval,
-    route_after_test_exec
+    route_after_test_exec,
+    route_after_compile_check,
 )
 
 # Import Agents
@@ -26,6 +28,7 @@ from src.agents.code_evaluator import CodeEvaluatorAgent
 from src.agents.code_refiner import CodeRefinerAgent
 from src.agents.test_generator import TestGeneratorAgent
 from src.agents.test_executor import TestExecutorAgent
+from src.agents.java_compile_checker import JavaCompileCheckerAgent
 from src.evaluation.report_builder import ReportBuilder
 from src.utils.logger import setup_logging, get_logger
 from src.utils.pipeline_log_handler import PipelineMemoryHandler
@@ -51,9 +54,21 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
     code_refiner = CodeRefinerAgent(config_dir=config_dir)
     test_gen = TestGeneratorAgent(config_dir=config_dir)
     test_exec = TestExecutorAgent(config_dir=config_dir)
+    compile_checker = JavaCompileCheckerAgent(config_dir=config_dir)
     report_builder = ReportBuilder()
 
-    # Define Node Wrappers
+    # ── Parallel chunk dispatch via Send API ──────────────────────────────
+    def node_dispatch_chunks(state: PipelineState) -> list[Send]:
+        """Fan-out: dispatch one Send per chunk for concurrent documenter processing."""
+        chunks = state.get("chunks", [])
+        docs = state.get("docs", {})
+        logger.info("[Pipeline] Dispatching %d chunks for parallel documentation", len(chunks))
+        return [
+            Send("documenter", {**state, "current_chunk_id": chunk.chunk_id})
+            for chunk in chunks
+            if chunk.chunk_id not in docs
+        ]
+
     def node_ingestion_chunker(state: PipelineState) -> dict:
         logger.info("[Pipeline] Executing Node: IngestionChunker")
         return chunker.execute(state)
@@ -71,15 +86,27 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
         return dep_eval.execute(state)
 
     def node_documenter(state: PipelineState) -> dict:
-        logger.info("[Pipeline] Executing Node: Documenter")
+        logger.info("[Pipeline] Executing Node: Documenter (chunk=%s)", state.get("current_chunk_id"))
         return documenter.execute(state)
 
     def node_doc_evaluator(state: PipelineState) -> dict:
         logger.info("[Pipeline] Executing Node: DocEvaluator")
         return doc_eval.execute(state)
 
+    # ── Parallel code generation dispatch ────────────────────────────────
+    def node_dispatch_codegen(state: PipelineState) -> list[Send]:
+        """Fan-out: dispatch one Send per documented chunk for concurrent code generation."""
+        docs = state.get("docs", {})
+        generated = state.get("generated_code", {})
+        pending = [cid for cid in docs if cid not in generated]
+        logger.info("[Pipeline] Dispatching %d chunks for parallel code generation", len(pending))
+        return [
+            Send("code_generator", {**state, "current_chunk_id": cid})
+            for cid in pending
+        ]
+
     def node_code_generator(state: PipelineState) -> dict:
-        logger.info("[Pipeline] Executing Node: CodeGenerator (Java)")
+        logger.info("[Pipeline] Executing Node: CodeGenerator (chunk=%s)", state.get("current_chunk_id"))
         return code_gen.execute(state)
 
     def node_code_evaluator(state: PipelineState) -> dict:
@@ -98,6 +125,10 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
         logger.info("[Pipeline] Executing Node: TestExecutor")
         return test_exec.execute(state)
 
+    def node_java_compile_checker(state: PipelineState) -> dict:
+        logger.info("[Pipeline] Executing Node: JavaCompileChecker")
+        return compile_checker.execute(state)
+
     def node_report_builder(state: PipelineState) -> dict:
         logger.info("[Pipeline] Executing Node: ReportBuilder")
         saved_path = report_builder.save_report_to_disk(state)
@@ -115,16 +146,17 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
     workflow.add_node("chunk_evaluator", node_chunk_evaluator)
     workflow.add_node("dependency_mapper", node_dependency_mapper)
     workflow.add_node("dependency_evaluator", node_dependency_evaluator)
-    workflow.add_node("documenter", node_documenter)
+    workflow.add_node("documenter", node_documenter)          # receives Send with current_chunk_id
     workflow.add_node("doc_evaluator", node_doc_evaluator)
-    workflow.add_node("code_generator", node_code_generator)
+    workflow.add_node("code_generator", node_code_generator)  # receives Send with current_chunk_id
     workflow.add_node("code_evaluator", node_code_evaluator)
     workflow.add_node("code_refiner", node_code_refiner)
     workflow.add_node("test_generator", node_test_generator)
     workflow.add_node("test_executor", node_test_executor)
+    workflow.add_node("java_compile_checker", node_java_compile_checker)
     workflow.add_node("report_builder", node_report_builder)
 
-    # Edge Wiring
+    # ── Edge Wiring ───────────────────────────────────────────────────────
     workflow.add_edge(START, "ingestion_chunker")
     workflow.add_edge("ingestion_chunker", "chunk_evaluator")
 
@@ -141,20 +173,35 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
     workflow.add_edge("dependency_mapper", "dependency_evaluator")
 
     # Conditional Branch after Dependency Evaluator
+    # route_after_dep_eval returns "documenter" or "dependency_mapper".
+    # We intercept the "documenter" branch and instead use the Send fan-out function
+    # (node_dispatch_chunks) as the routing function directly, so LangGraph dispatches
+    # one Send("documenter", ...) per chunk concurrently.
+    def route_dep_eval_or_fanout(state: PipelineState):
+        dest = route_after_dep_eval(state)
+        if dest == "documenter":
+            # Fan-out: return a list of Send objects, one per chunk
+            return node_dispatch_chunks(state)
+        return dest
+
     workflow.add_conditional_edges(
         "dependency_evaluator",
-        route_after_dep_eval,
+        route_dep_eval_or_fanout,
         {
+            "dependency_mapper": "dependency_mapper",
             "documenter": "documenter",
-            "dependency_mapper": "dependency_mapper"
         }
     )
 
+    # Each parallel documenter invocation converges at doc_evaluator
     workflow.add_edge("documenter", "doc_evaluator")
-    workflow.add_edge("doc_evaluator", "code_generator")
 
-    # Code Gen -> Code Eval Loop
-    workflow.add_edge("code_generator", "code_evaluator")
+    # doc_evaluator → fan-out code generation: one Send per documented chunk
+    workflow.add_conditional_edges(
+        "doc_evaluator",
+        node_dispatch_codegen,
+        {"code_generator": "code_generator"}
+    )
     workflow.add_conditional_edges(
         "code_evaluator",
         route_after_code_eval,
@@ -165,11 +212,19 @@ def build_modernization_graph(config_dir: str = "configs") -> Any:
     )
     workflow.add_edge("code_refiner", "code_evaluator")
 
-    # Test Gen -> Test Exec -> Refiner / Report Builder Loop
+    # Test Gen → Test Exec → Compile Check → (refiner | report_builder)
     workflow.add_edge("test_generator", "test_executor")
     workflow.add_conditional_edges(
         "test_executor",
         route_after_test_exec,
+        {
+            "code_refiner": "code_refiner",
+            "java_compile_checker": "java_compile_checker"
+        }
+    )
+    workflow.add_conditional_edges(
+        "java_compile_checker",
+        route_after_compile_check,
         {
             "code_refiner": "code_refiner",
             "report_builder": "report_builder"
@@ -205,7 +260,8 @@ def run_pipeline(source_files: list[str], config_dir: str = "configs") -> Pipeli
         "current_chunk_id": None,
         "stage": "starting",
         "flagged_for_review": [],
-        "metadata": {}
+        "metadata": {},
+        "compile_errors": {},
     }
 
     final_state = app.invoke(initial_state)

@@ -8,6 +8,7 @@ from src.prompts.documenter_prompts import (
     DOCUMENTER_SYSTEM_PROMPT,
     DOCUMENTER_USER_PROMPT
 )
+from src.utils.chunk_cache import ChunkCache
 
 
 class DocSectionSchema(BaseModel):
@@ -27,6 +28,16 @@ class DocumenterAgent(BaseAgent):
     def execute_chunk(self, chunk: ChunkMetadata, state: PipelineState) -> DocSection:
         """Generates documentation for a single chunk."""
         self.logger.debug("Generating documentation for chunk: %s (%s)", chunk.chunk_id, chunk.language)
+
+        # ── Cache check ───────────────────────────────────────────────────
+        cached = ChunkCache.get(chunk.raw_code, "doc")
+        if cached:
+            self.logger.info("Cache HIT for doc chunk %s — skipping LLM call.", chunk.chunk_id)
+            try:
+                return DocSection.model_validate({**cached, "chunk_id": chunk.chunk_id})
+            except Exception:
+                self.logger.warning("Cache entry invalid for %s — re-generating.", chunk.chunk_id)
+
         edges = state.get("dependency_graph", [])
         chunk_edges = [e for e in edges if e.source_chunk == chunk.chunk_id or e.target_chunk == chunk.chunk_id]
         dep_ctx = "\n".join([f"- {e.edge_type}: {e.source_chunk} -> {e.target_chunk} ({e.description})" for e in chunk_edges]) or "None"
@@ -150,7 +161,7 @@ class DocumenterAgent(BaseAgent):
         )
 
         self.logger.info("Documented chunk %s with %d business rules", chunk.chunk_id, len(res.business_rules))
-        return DocSection(
+        doc = DocSection(
             chunk_id=chunk.chunk_id,
             purpose=res.purpose,
             inputs=res.inputs,
@@ -159,6 +170,9 @@ class DocumenterAgent(BaseAgent):
             control_flow=res.control_flow,
             version=1
         )
+        # ── Cache store ───────────────────────────────────────────────────
+        ChunkCache.put(chunk.raw_code, "doc", doc.model_dump())
+        return doc
 
     def execute(self, state: PipelineState) -> dict:
         """Processes documentation for all chunks or current_chunk_id."""

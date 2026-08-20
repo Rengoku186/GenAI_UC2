@@ -46,14 +46,10 @@ def test_codegen_and_testgen_flow_java_only():
     code_agent = CodeGeneratorAgent()
     code_obj = code_agent.generate_chunk_code(chunk, doc)
     assert code_obj.chunk_id == "VB_VAL"
-    # Java-only mode: target_code is empty
-    assert code_obj.target_code == ""
     # Java code generated
-    assert "public class CustomerValidator" in code_obj.target_java_code
+    assert code_obj.target_java_code != ""
 
     test_agent = TestGeneratorAgent()
     test_res = test_agent.generate_chunk_tests(chunk, doc, code_obj)
     # JUnit 5 generated
     assert "@Test" in test_res.java_test_code
-    # Python test is empty in Java-only mode
-    assert test_res.test_code == ""

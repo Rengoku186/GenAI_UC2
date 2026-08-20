@@ -83,3 +83,8 @@ outputs/evaluation_reports/*.json
 #Run Guide 
 RUN_GUIDE.md
 PROJECT_EXPLANATION_GUIDE.md
+
+# Logs and Cache
+
+.logs
+.cache
