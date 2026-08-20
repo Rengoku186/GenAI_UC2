@@ -22,6 +22,10 @@ def setup_logging(
         logging.StreamHandler(sys.stdout)
     ]
 
+    if log_file is None:
+        from datetime import datetime
+        log_file = Path(".logs") / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
     if log_file:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
